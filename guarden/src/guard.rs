@@ -2,18 +2,32 @@ use std::fmt::Debug;
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 
-pub trait CallableGuard<const ASYNC: bool, Context> {
-    type Output;
-    fn call(self, context: Context) -> Self::Output;
+pub trait GuardMode {
+    const DEBUG: &'static str;
+    type Spawner;
+    fn spawner() -> Self::Spawner;
 }
 
-impl<Context, Guard> CallableGuard<false, Context> for Guard
+pub struct SyncMode;
+
+impl GuardMode for SyncMode {
+    const DEBUG: &'static str = "ContextGuard::Sync";
+    type Spawner = ();
+    fn spawner() -> Self::Spawner {}
+}
+
+pub trait CallableGuard<Mode: GuardMode, Context> {
+    type Output;
+    fn call(self, context: Context, spawner: Mode::Spawner) -> Self::Output;
+}
+
+impl<Context, Guard> CallableGuard<SyncMode, Context> for Guard
 where
     Guard: FnOnce(Context),
 {
     type Output = ();
 
-    fn call(self, context: Context) -> Self::Output {
+    fn call(self, context: Context, _spawner: ()) -> Self::Output {
         self(context)
     }
 }
@@ -23,7 +37,17 @@ cfg_select! {
         use crate::task::{DetachableTask};
         use tokio::runtime::Handle;
 
-        impl<Context, Guard, Task, _R> CallableGuard<true, Context> for Guard
+        pub struct AsyncMode;
+
+        impl GuardMode for AsyncMode {
+            const DEBUG: &'static str = "ContextGuard::Async";
+            type Spawner = Handle;
+            fn spawner() -> Self::Spawner {
+                Handle::current()
+            }
+        }
+
+        impl<Context, Guard, Task, _R> CallableGuard<AsyncMode, Context> for Guard
         where
             Guard: FnOnce(Context) -> Task,
             Task: Future<Output = _R> + Send + 'static,
@@ -31,55 +55,55 @@ cfg_select! {
         {
             type Output = DetachableTask<Handle, Task>;
 
-            fn call(self, context: Context) -> Self::Output {
-                DetachableTask::new(self(context))
+            fn call(self, context: Context, spawner: Handle) -> Self::Output {
+                DetachableTask::with_spawner(spawner, self(context))
             }
         }
     }
 }
 
-pub struct ContextGuard<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>> {
-    context: ManuallyDrop<Context>,
-    guard: ManuallyDrop<Guard>,
+struct ContextGuardInner<Mode: GuardMode, Context, Guard: CallableGuard<Mode, Context>> {
+    context: Context,
+    guard: Guard,
+    spawner: Mode::Spawner,
 }
 
-impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>> Deref
-    for ContextGuard<ASYNC, Context, Guard>
+pub struct ContextGuard<Mode: GuardMode, Context, Guard: CallableGuard<Mode, Context>> {
+    inner: ManuallyDrop<ContextGuardInner<Mode, Context, Guard>>,
+}
+
+impl<Mode: GuardMode, Context, Guard: CallableGuard<Mode, Context>> Deref
+    for ContextGuard<Mode, Context, Guard>
 {
     type Target = Context;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        &self.context
+        &self.inner.context
     }
 }
 
-impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>> DerefMut
-    for ContextGuard<ASYNC, Context, Guard>
+impl<Mode: GuardMode, Context, Guard: CallableGuard<Mode, Context>> DerefMut
+    for ContextGuard<Mode, Context, Guard>
 {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.context
+        &mut self.inner.context
     }
 }
 
-impl<const ASYNC: bool, Context: Debug, Guard: CallableGuard<ASYNC, Context>> Debug
-    for ContextGuard<ASYNC, Context, Guard>
+impl<Mode: GuardMode, Context: Debug, Guard: CallableGuard<Mode, Context>> Debug
+    for ContextGuard<Mode, Context, Guard>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = if ASYNC {
-            "ContextGuard::Async"
-        } else {
-            "ContextGuard::Sync"
-        };
-        f.debug_struct(name)
-            .field("context", &self.context)
+        f.debug_struct(Mode::DEBUG)
+            .field("context", &self.inner.context)
             .finish_non_exhaustive()
     }
 }
 
-impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>>
-    ContextGuard<ASYNC, Context, Guard>
+impl<Mode: GuardMode, Context, Guard: CallableGuard<Mode, Context>>
+    ContextGuard<Mode, Context, Guard>
 {
     /// Creates a new `ContextGuard`.
     ///
@@ -92,21 +116,27 @@ impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>>
         Guard: FnOnce(Context) -> _R,
     {
         ContextGuard {
-            context: ManuallyDrop::new(context),
-            guard: ManuallyDrop::new(guard),
+            inner: ManuallyDrop::new(ContextGuardInner {
+                context,
+                guard,
+                spawner: Mode::spawner(),
+            }),
         }
     }
 }
 
-impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>>
-    ContextGuard<ASYNC, Context, Guard>
+impl<Mode: GuardMode, Context, Guard: CallableGuard<Mode, Context>>
+    ContextGuard<Mode, Context, Guard>
 {
     unsafe fn call(&mut self) -> Guard::Output {
         unsafe {
-            let context = ManuallyDrop::take(&mut self.context);
-            let guard = ManuallyDrop::take(&mut self.guard);
+            let ContextGuardInner {
+                context,
+                guard,
+                spawner,
+            } = ManuallyDrop::take(&mut self.inner);
 
-            guard.call(context)
+            guard.call(context, spawner)
         }
     }
 
@@ -118,17 +148,20 @@ impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>>
     pub fn defuse(self) -> Context {
         let mut this = ManuallyDrop::new(self);
         unsafe {
-            let context = ManuallyDrop::take(&mut this.context);
-            ManuallyDrop::drop(&mut this.guard);
+            let ContextGuardInner {
+                context,
+                guard: _guard,
+                spawner: _spawner,
+            } = ManuallyDrop::take(&mut this.inner);
             context
         }
     }
 }
 
-impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>> Drop
-    for ContextGuard<ASYNC, Context, Guard>
+impl<Mode: GuardMode, Context, Guard: CallableGuard<Mode, Context>> Drop
+    for ContextGuard<Mode, Context, Guard>
 {
     fn drop(&mut self) {
-        let _ = unsafe { self.call() };
+        let _: Guard::Output = unsafe { self.call() };
     }
 }

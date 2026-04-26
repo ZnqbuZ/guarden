@@ -168,8 +168,8 @@ pub fn proc(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as MacroInput);
 
     #[allow(non_snake_case)]
-    let ASYNC = if input.sync_token.is_some() {
-        quote!(false)
+    let mode = if input.sync_token.is_some() {
+        quote!(guarden::guard::SyncMode)
     } else {
         quote!(_)
     };
@@ -202,7 +202,7 @@ pub fn proc(input: TokenStream) -> TokenStream {
     let guard_expr = {
         let move_token = input.move_token;
         let body = input.body;
-        let new = quote!(guarden::guard::ContextGuard::<#ASYNC, _, _>::new);
+        let new = quote!(guarden::guard::ContextGuard::<#mode, _, _>::new);
 
         match export {
             Export::Wrapped => {

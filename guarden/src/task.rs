@@ -17,7 +17,7 @@ struct DetachableTaskContext<Spawner, Task> {
     spawner: Spawner,
     task: Option<BoxTask<Task>>,
 }
-type DetachableTaskGuardHelper<Context> = ContextGuard<false, Context, fn(Context)>;
+type DetachableTaskGuardHelper<Context> = ContextGuard<crate::guard::SyncMode, Context, fn(Context)>;
 type DetachableTaskGuard<Spawner, Task> =
     DetachableTaskGuardHelper<DetachableTaskContext<Spawner, Task>>;
 
