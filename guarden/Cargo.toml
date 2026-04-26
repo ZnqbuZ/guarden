@@ -1,0 +1,27 @@
+[package]
+name = "guarden"
+repository.workspace = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Deferred cleanup and scoped guard macros for sync and async Rust"
+readme = "README.md"
+
+[lib]
+name = "guarden"
+path = "src/lib.rs"
+
+[features]
+default = ["tokio"]
+tokio = ["dep:tokio"]
+
+[dependencies]
+guarden-macro = { version = "0.1", path = "../guarden-macro" }
+tokio = { version = "1.52.1", features = ["rt"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.52.1", features = ["full"] }
+tokio-test = "0.4.5"
