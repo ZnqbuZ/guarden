@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = [
+    "guarden", "guarden-macro",
+]
+
+[workspace.package]
+repository = "https://github.com/ZnqbuZ/guarden"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+keywords = ["guard", "defer", "scope", "macro", "cleanup"]
+categories = ["development-tools", "rust-patterns"]
+
+[profile.dev]
+panic = "unwind"
+debug = 2
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = true
