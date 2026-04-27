@@ -22,7 +22,7 @@ Add `guarden` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-guarden = "0.1.0"
+guarden = "0.1"
 ```
 
 ## 🚀 Quick Start
