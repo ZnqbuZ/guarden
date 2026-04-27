@@ -65,19 +65,33 @@ pub struct DetachableTask<Spawner: TaskSpawner<Task>, Task> {
 }
 
 impl<Spawner: TaskSpawner<Task>, Task> DetachableTask<Spawner, Task> {
+    /// Forces detachment immediately.
+    ///
+    /// If the inner task has not completed yet, it is handed to the configured
+    /// [`TaskSpawner`].
     #[inline]
     pub fn detach(self) {
         self.guard.trigger()
     }
 
+    /// Cancels detachment and returns the pinned task back to the caller.
+    ///
+    /// This is useful when you need to move execution ownership elsewhere
+    /// manually.
     #[inline]
     pub fn reclaim(self) -> BoxTask<Task> {
         self.guard.defuse().task.unwrap()
     }
 }
 
+/// Spawns a detached task produced by [`DetachableTask`].
+///
+/// Implement this trait to integrate with a runtime or custom executor.
 pub trait TaskSpawner<Task> {
+    /// Return type of the spawn operation.
     type Output;
+
+    /// Consumes `self` and schedules `task` for background execution.
     fn spawn(self, task: BoxTask<Task>) -> Self::Output
     where
         Self: Sized;
@@ -109,6 +123,11 @@ cfg_select! {
         use tokio::runtime::Handle;
         use tokio::task::JoinHandle;
 
+        /// Tokio-backed spawner that uses [`Handle::current`].
+        ///
+        /// The runtime handle is resolved only when a task is detached/spawned,
+        /// not when a [`DetachableTask`] is constructed. Calling detach/spawn
+        /// outside a Tokio runtime will panic.
         pub struct TokioHandle;
 
         impl<Task> TaskSpawner<Task> for TokioHandle
@@ -127,6 +146,10 @@ cfg_select! {
 }
 
 impl DetachableTask<(), ()> {
+    /// Creates a detachable task with a custom spawner.
+    ///
+    /// The task starts in inline polling mode and only moves to `spawner`
+    /// when detached (explicitly or by drop before completion).
     pub fn with_spawner<Spawner: TaskSpawner<Task>, Task>(
         spawner: Spawner,
         task: Task,
@@ -140,6 +163,8 @@ impl DetachableTask<(), ()> {
         }
     }
 
+    /// Creates a detachable task that uses the current Tokio runtime for
+    /// background detachment.
     #[cfg(feature = "tokio")]
     #[inline]
     pub fn new<Task>(task: Task) -> DetachableTask<TokioHandle, Task>
@@ -161,6 +186,10 @@ impl<Spawner: TaskSpawner<Task>, Task: Future> IntoFuture for DetachableTask<Spa
     }
 }
 
+/// Future returned by [`DetachableTask::into_future`].
+///
+/// It polls the underlying task inline; if dropped while pending, drop logic on
+/// the inner guard detaches the remainder to the configured spawner.
 pub struct DetachableTaskFuture<Spawner: TaskSpawner<Task>, Task> {
     guard: DetachableTaskContextGuard<Spawner, Task>,
 }

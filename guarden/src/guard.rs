@@ -3,6 +3,15 @@ use std::fmt::Debug;
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 
+/// A callable guard body used by [`ContextGuard`].
+///
+/// The `SYNC`/`ASYNC` const parameters encode how the guard body should be
+/// interpreted by macro expansion:
+/// - `SYNC = true` forces synchronous execution.
+/// - `SYNC = false` enables inference mode, where the compiler determines
+///   whether async wrapping is needed from the closure return type.
+/// - In inference mode, `ASYNC` is effectively inferred: future-returning
+///   closures use async detachment, while non-future closures stay sync.
 pub trait CallableGuard<const SYNC: bool, const ASYNC: bool, Context> {
     type Output;
     fn call(self, context: Context) -> Self::Output;
@@ -34,6 +43,7 @@ where
     }
 }
 
+/// Adapter that turns an async guard closure into a [`DetachableTask`].
 pub struct AsyncGuard<Spawner, Guard> {
     spawner: Spawner,
     guard: Guard,
@@ -56,11 +66,12 @@ cfg_select! {
     feature = "tokio" => {
         use crate::task::TokioHandle;
 
-        /// **Note on `Handle::current()`**: The Tokio runtime handle is acquired lazily when the
-        /// guard is triggered or dropped, rather than when it is created. This allows you to
+        /// **Note on `Handle::current()`**: The Tokio runtime handle is acquired lazily at
+        /// **detachment time**, never when the guard is constructed. This allows you to
         /// create the guard in a non-Tokio thread (e.g., during server bootstrapping or inside a
-        /// builder pattern) as long as the guard is ultimately dropped or triggered within a valid
-        /// Tokio context. If the guard is dropped outside a Tokio context, it will panic.
+        /// builder pattern) as long as detachment eventually happens within a valid Tokio context.
+        /// In practice, this happens when an async guard is dropped while pending. If detachment
+        /// occurs outside a Tokio context, it will panic.
         type DefaultAsyncSpawner = TokioHandle;
         const DEFAULT_ASYNC_SPAWNER: DefaultAsyncSpawner = TokioHandle;
     }
@@ -99,6 +110,12 @@ struct ContextGuardInner<
     guard: Guard,
 }
 
+/// RAII guard that owns a context value and executes a closure on drop.
+///
+/// You can either:
+/// - let `Drop` trigger the guard body automatically,
+/// - call [`trigger`](Self::trigger) for eager execution, or
+/// - call [`defuse`](Self::defuse) to recover the context without execution.
 pub struct ContextGuard<
     const SYNC: bool,
     const ASYNC: bool,
@@ -148,6 +165,10 @@ impl<
 impl<const SYNC: bool, const ASYNC: bool, Context, Guard: CallableGuard<SYNC, ASYNC, Context>>
     ContextGuard<SYNC, ASYNC, Context, Guard>
 {
+    /// Creates a guard from an already constructed callable guard type.
+    ///
+    /// This is the most direct constructor and is mainly used by macro internals
+    /// and advanced integrations.
     #[inline]
     pub fn with_guard(context: Context, guard: Guard) -> Self {
         Self(ManuallyDrop::new(ContextGuardInner { context, guard }))
@@ -172,6 +193,10 @@ impl<Context, Spawner: TaskSpawner<Task>, Guard, Task>
 where
     Guard: FnOnce(Context) -> Task,
 {
+    /// Creates an async guard with a custom task spawner.
+    ///
+    /// The returned guard executes inline first and detaches through `spawner`
+    /// if it is dropped before completion.
     #[inline]
     pub fn with_spawner(spawner: Spawner, context: Context, guard: Guard) -> Self {
         Self::with_guard(context, AsyncGuard { spawner, guard })
@@ -181,6 +206,7 @@ where
 impl<const SYNC: bool, const ASYNC: bool, Context, Guard: CallableGuard<SYNC, ASYNC, Context>>
     ContextGuard<SYNC, ASYNC, Context, Guard>
 {
+    // SAFETY: callers must guarantee this guard has not been consumed before.
     #[inline]
     unsafe fn call(&mut self) -> Guard::Output {
         unsafe {
@@ -189,12 +215,19 @@ impl<const SYNC: bool, const ASYNC: bool, Context, Guard: CallableGuard<SYNC, AS
         }
     }
 
+    /// Executes the guard body immediately and consumes the guard.
+    ///
+    /// This bypasses drop-based execution by running the closure eagerly.
     #[inline]
     pub fn trigger(self) -> Guard::Output {
         let mut this = ManuallyDrop::new(self);
         unsafe { this.call() }
     }
 
+    /// Defuses the guard and returns the owned context without executing it.
+    ///
+    /// Use this when cleanup should be canceled and captured state should be
+    /// recovered by the caller.
     #[inline]
     pub fn defuse(self) -> Context {
         let mut this = ManuallyDrop::new(self);
