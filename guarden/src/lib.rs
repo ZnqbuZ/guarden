@@ -28,6 +28,7 @@
 //! by explicitly setting the guard to `sync`:
 //!
 //! ```rust,should_panic
+//! # use guarden::guarded;
 //! let val = "critical failure".to_string();
 //! guarded! {
 //!     sync [val] {
