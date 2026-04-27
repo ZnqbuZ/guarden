@@ -44,7 +44,7 @@ pub mod task;
 #[doc(hidden)]
 pub use guarden_macro::__guarded;
 
-/// Creates a [`ContextGuard`] object, binding it to a variable within the local scope.
+/// Creates a [`ContextGuard`](guard::ContextGuard) object, binding it to a variable within the local scope.
 ///
 /// ### Examples
 ///
@@ -287,7 +287,7 @@ macro_rules! guarded {
     };
 }
 
-/// Creates a [`ContextGuard`] object, without binding it to a variable.
+/// Creates a [`ContextGuard`](guard::ContextGuard) object, without binding it to a variable.
 /// The macro evaluates to an expression returning the guard.
 ///
 /// **Note:** For usage with `panic!` or `loop`, see the [module-level documentation](self)

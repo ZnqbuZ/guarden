@@ -23,15 +23,11 @@ cfg_select! {
         use crate::task::{DetachableTask};
         use tokio::runtime::Handle;
 
-        /// Mode for asynchronous guards that detach a task upon dropping.
-        ///
         /// **Note on `Handle::current()`**: The Tokio runtime handle is acquired lazily when the
         /// guard is triggered or dropped, rather than when it is created. This allows you to
         /// create the guard in a non-Tokio thread (e.g., during server bootstrapping or inside a
         /// builder pattern) as long as the guard is ultimately dropped or triggered within a valid
         /// Tokio context. If the guard is dropped outside a Tokio context, it will panic.
-        pub struct AsyncMode;
-
         impl<Context, Guard, Task, _R> CallableGuard<true, Context> for Guard
         where
             Guard: FnOnce(Context) -> Task,
