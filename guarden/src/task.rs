@@ -21,10 +21,12 @@ struct DetachableTaskContext<Spawner, Task> {
 
 struct DetachableTaskGuard;
 
-impl<Spawner: TaskSpawner<Task>, Task> CallableGuard<false, DetachableTaskContext<Spawner, Task>>
-    for DetachableTaskGuard
+impl<Spawner: TaskSpawner<Task>, Task>
+    CallableGuard<false, false, DetachableTaskContext<Spawner, Task>> for DetachableTaskGuard
 {
     type Output = ();
+
+    #[inline]
     fn call(self, context: DetachableTaskContext<Spawner, Task>) {
         if let Some(task) = context.task {
             context.spawner.spawn(task);
@@ -33,7 +35,7 @@ impl<Spawner: TaskSpawner<Task>, Task> CallableGuard<false, DetachableTaskContex
 }
 
 type DetachableTaskContextGuard<Spawner, Task> =
-    ContextGuard<false, DetachableTaskContext<Spawner, Task>, DetachableTaskGuard>;
+    ContextGuard<false, false, DetachableTaskContext<Spawner, Task>, DetachableTaskGuard>;
 
 /// A task wrapper that executes inline but automatically detaches to a background spawner
 /// if the current execution context is interrupted or dropped.
@@ -63,10 +65,12 @@ pub struct DetachableTask<Spawner: TaskSpawner<Task>, Task> {
 }
 
 impl<Spawner: TaskSpawner<Task>, Task> DetachableTask<Spawner, Task> {
+    #[inline]
     pub fn detach(self) {
         self.guard.trigger()
     }
 
+    #[inline]
     pub fn reclaim(self) -> BoxTask<Task> {
         self.guard.defuse().task.unwrap()
     }
@@ -84,8 +88,19 @@ where
     F: FnOnce(BoxTask<Task>) -> Output,
 {
     type Output = Output;
+
+    #[inline]
     fn spawn(self, task: BoxTask<Task>) -> Self::Output {
         self(task)
+    }
+}
+
+impl<Task> TaskSpawner<Task> for () {
+    type Output = BoxTask<Task>;
+
+    #[inline]
+    fn spawn(self, task: BoxTask<Task>) -> Self::Output {
+        task
     }
 }
 
@@ -94,27 +109,28 @@ cfg_select! {
         use tokio::runtime::Handle;
         use tokio::task::JoinHandle;
 
-        impl<Task> TaskSpawner<Task> for Handle
+        pub struct TokioHandle;
+
+        impl<Task> TaskSpawner<Task> for TokioHandle
         where
             Task: Future + Send + 'static,
             <Task as Future>::Output: Send + 'static,
         {
             type Output = JoinHandle<<Task as Future>::Output>;
             fn spawn(self, task: BoxTask<Task>) -> Self::Output {
-                Handle::spawn(&self, task)
+                Handle::current().spawn(task)
             }
         }
     }
+
+    _ => {}
 }
 
-impl DetachableTask<fn(BoxTask<()>), ()> {
-    pub fn with_spawner<Spawner, Task>(
+impl DetachableTask<(), ()> {
+    pub fn with_spawner<Spawner: TaskSpawner<Task>, Task>(
         spawner: Spawner,
         task: Task,
-    ) -> DetachableTask<Spawner, Task>
-    where
-        Spawner: TaskSpawner<Task>,
-    {
+    ) -> DetachableTask<Spawner, Task> {
         let context = DetachableTaskContext {
             spawner,
             task: Some(Box::pin(task)),
@@ -125,23 +141,21 @@ impl DetachableTask<fn(BoxTask<()>), ()> {
     }
 
     #[cfg(feature = "tokio")]
-    pub fn new<Task>(task: Task) -> DetachableTask<Handle, Task>
+    #[inline]
+    pub fn new<Task>(task: Task) -> DetachableTask<TokioHandle, Task>
     where
         Task: Future + Send + 'static,
         <Task as Future>::Output: Send + 'static,
     {
-        let handle = Handle::current();
-        Self::with_spawner(handle, task)
+        Self::with_spawner(TokioHandle, task)
     }
 }
 
-impl<Spawner: TaskSpawner<Task>, Task> IntoFuture for DetachableTask<Spawner, Task>
-where
-    Task: Future,
-{
+impl<Spawner: TaskSpawner<Task>, Task: Future> IntoFuture for DetachableTask<Spawner, Task> {
     type Output = Task::Output;
     type IntoFuture = DetachableTaskFuture<Spawner, Task>;
 
+    #[inline]
     fn into_future(self) -> Self::IntoFuture {
         DetachableTaskFuture { guard: self.guard }
     }
@@ -173,6 +187,7 @@ impl<Spawner: TaskSpawner<Task>, Task: Future> Future for DetachableTaskFuture<S
 }
 
 impl<Spawner: TaskSpawner<Task>, Task: Future> FusedFuture for DetachableTaskFuture<Spawner, Task> {
+    #[inline]
     fn is_terminated(&self) -> bool {
         self.guard.task.is_none()
     }

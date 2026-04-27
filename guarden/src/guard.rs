@@ -1,97 +1,156 @@
+use crate::task::{DetachableTask, TaskSpawner};
 use std::fmt::Debug;
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 
-pub trait CallableGuard<const ASYNC: bool, Context> {
+pub trait CallableGuard<const SYNC: bool, const ASYNC: bool, Context> {
     type Output;
     fn call(self, context: Context) -> Self::Output;
 }
 
-impl<Context, Guard> CallableGuard<false, Context> for Guard
+// SYNC = false, ASYNC = false (Inferred Sync)
+impl<Context, Guard> CallableGuard<false, false, Context> for Guard
 where
     Guard: FnOnce(Context),
 {
     type Output = ();
 
+    #[inline]
     fn call(self, context: Context) -> Self::Output {
         self(context)
     }
 }
 
+// SYNC = true, ASYNC = _ (Explicit Sync)
+impl<const ASYNC: bool, Context, Guard, R> CallableGuard<true, ASYNC, Context> for Guard
+where
+    Guard: FnOnce(Context) -> R,
+{
+    type Output = R;
+
+    #[inline]
+    fn call(self, context: Context) -> Self::Output {
+        self(context)
+    }
+}
+
+pub struct AsyncGuard<Spawner, Guard> {
+    spawner: Spawner,
+    guard: Guard,
+}
+
+impl<Context, Spawner: TaskSpawner<Task>, Guard, Task> CallableGuard<false, true, Context>
+    for AsyncGuard<Spawner, Guard>
+where
+    Guard: FnOnce(Context) -> Task,
+{
+    type Output = DetachableTask<Spawner, Task>;
+
+    #[inline]
+    fn call(self, context: Context) -> Self::Output {
+        DetachableTask::with_spawner(self.spawner, (self.guard)(context))
+    }
+}
+
 cfg_select! {
     feature = "tokio" => {
-        use crate::task::{DetachableTask};
-        use tokio::runtime::Handle;
+        use crate::task::TokioHandle;
 
         /// **Note on `Handle::current()`**: The Tokio runtime handle is acquired lazily when the
         /// guard is triggered or dropped, rather than when it is created. This allows you to
         /// create the guard in a non-Tokio thread (e.g., during server bootstrapping or inside a
         /// builder pattern) as long as the guard is ultimately dropped or triggered within a valid
         /// Tokio context. If the guard is dropped outside a Tokio context, it will panic.
-        impl<Context, Guard, Task, _R> CallableGuard<true, Context> for Guard
-        where
-            Guard: FnOnce(Context) -> Task,
-            Task: Future<Output = _R> + Send + 'static,
-            _R: Send + 'static,
-        {
-            type Output = DetachableTask<Handle, Task>;
+        type DefaultAsyncSpawner = TokioHandle;
+        const DEFAULT_ASYNC_SPAWNER: DefaultAsyncSpawner = TokioHandle;
+    }
 
-            fn call(self, context: Context) -> Self::Output {
-                DetachableTask::new(self(context))
-            }
-        }
+    _ => {
+        type DefaultAsyncSpawner = ();
+        const DEFAULT_ASYNC_SPAWNER: DefaultAsyncSpawner = ();
     }
 }
 
-pub struct ContextGuard<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>> {
-    context: ManuallyDrop<Context>,
-    guard: ManuallyDrop<Guard>,
+impl<Context, Guard, Task: Future> CallableGuard<false, true, Context> for Guard
+where
+    Guard: FnOnce(Context) -> Task,
+    DefaultAsyncSpawner: TaskSpawner<Task>,
+{
+    type Output =
+        <AsyncGuard<DefaultAsyncSpawner, Guard> as CallableGuard<false, true, Context>>::Output;
+
+    #[inline]
+    fn call(self, context: Context) -> Self::Output {
+        AsyncGuard {
+            spawner: DEFAULT_ASYNC_SPAWNER,
+            guard: self,
+        }
+        .call(context)
+    }
 }
 
-impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>> Deref
-    for ContextGuard<ASYNC, Context, Guard>
+struct ContextGuardInner<
+    const SYNC: bool,
+    const ASYNC: bool,
+    Context,
+    Guard: CallableGuard<SYNC, ASYNC, Context>,
+> {
+    context: Context,
+    guard: Guard,
+}
+
+pub struct ContextGuard<
+    const SYNC: bool,
+    const ASYNC: bool,
+    Context,
+    Guard: CallableGuard<SYNC, ASYNC, Context>,
+>(ManuallyDrop<ContextGuardInner<SYNC, ASYNC, Context, Guard>>);
+
+impl<const SYNC: bool, const ASYNC: bool, Context, Guard: CallableGuard<SYNC, ASYNC, Context>> Deref
+    for ContextGuard<SYNC, ASYNC, Context, Guard>
 {
     type Target = Context;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        &self.context
+        &self.0.context
     }
 }
 
-impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>> DerefMut
-    for ContextGuard<ASYNC, Context, Guard>
+impl<const SYNC: bool, const ASYNC: bool, Context, Guard: CallableGuard<SYNC, ASYNC, Context>>
+    DerefMut for ContextGuard<SYNC, ASYNC, Context, Guard>
 {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.context
+        &mut self.0.context
     }
 }
 
-impl<const ASYNC: bool, Context: Debug, Guard: CallableGuard<ASYNC, Context>> Debug
-    for ContextGuard<ASYNC, Context, Guard>
+impl<
+    const SYNC: bool,
+    const ASYNC: bool,
+    Context: Debug,
+    Guard: CallableGuard<SYNC, ASYNC, Context>,
+> Debug for ContextGuard<SYNC, ASYNC, Context, Guard>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = if ASYNC {
+        let name = if !SYNC && ASYNC {
             "ContextGuard::Async"
         } else {
             "ContextGuard::Sync"
         };
         f.debug_struct(name)
-            .field("context", &self.context)
+            .field("context", &self.0.context)
             .finish_non_exhaustive()
     }
 }
 
-impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>>
-    ContextGuard<ASYNC, Context, Guard>
+impl<const SYNC: bool, const ASYNC: bool, Context, Guard: CallableGuard<SYNC, ASYNC, Context>>
+    ContextGuard<SYNC, ASYNC, Context, Guard>
 {
     #[inline]
     pub fn with_guard(context: Context, guard: Guard) -> Self {
-        ContextGuard {
-            context: ManuallyDrop::new(context),
-            guard: ManuallyDrop::new(guard),
-        }
+        Self(ManuallyDrop::new(ContextGuardInner { context, guard }))
     }
 
     /// Creates a new `ContextGuard`.
@@ -108,35 +167,46 @@ impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>>
     }
 }
 
-impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>>
-    ContextGuard<ASYNC, Context, Guard>
+impl<Context, Spawner: TaskSpawner<Task>, Guard, Task>
+    ContextGuard<false, true, Context, AsyncGuard<Spawner, Guard>>
+where
+    Guard: FnOnce(Context) -> Task,
 {
+    #[inline]
+    pub fn with_spawner(spawner: Spawner, context: Context, guard: Guard) -> Self {
+        Self::with_guard(context, AsyncGuard { spawner, guard })
+    }
+}
+
+impl<const SYNC: bool, const ASYNC: bool, Context, Guard: CallableGuard<SYNC, ASYNC, Context>>
+    ContextGuard<SYNC, ASYNC, Context, Guard>
+{
+    #[inline]
     unsafe fn call(&mut self) -> Guard::Output {
         unsafe {
-            let context = ManuallyDrop::take(&mut self.context);
-            let guard = ManuallyDrop::take(&mut self.guard);
-
+            let ContextGuardInner { context, guard } = ManuallyDrop::take(&mut self.0);
             guard.call(context)
         }
     }
 
+    #[inline]
     pub fn trigger(self) -> Guard::Output {
         let mut this = ManuallyDrop::new(self);
         unsafe { this.call() }
     }
 
+    #[inline]
     pub fn defuse(self) -> Context {
         let mut this = ManuallyDrop::new(self);
         unsafe {
-            let context = ManuallyDrop::take(&mut this.context);
-            ManuallyDrop::drop(&mut this.guard);
+            let ContextGuardInner { context, guard: _ } = ManuallyDrop::take(&mut this.0);
             context
         }
     }
 }
 
-impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>> Drop
-    for ContextGuard<ASYNC, Context, Guard>
+impl<const SYNC: bool, const ASYNC: bool, Context, Guard: CallableGuard<SYNC, ASYNC, Context>> Drop
+    for ContextGuard<SYNC, ASYNC, Context, Guard>
 {
     /// Executes the guard closure.
     ///
@@ -150,6 +220,7 @@ impl<const ASYNC: bool, Context, Guard: CallableGuard<ASYNC, Context>> Drop
     /// unacceptable for your server architecture, you must ensure that your guard closures
     /// do not contain diverging operations (like `panic!`, `unwrap()`, or `expect()`) that
     /// could fail.
+    #[inline]
     fn drop(&mut self) {
         let _ = unsafe { self.call() };
     }

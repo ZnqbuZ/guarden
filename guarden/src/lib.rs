@@ -531,6 +531,20 @@ mod tests {
 
         assert_eq!(called.load(Ordering::SeqCst), 42);
     }
+
+    #[test]
+    fn explicit_sync_can_return_value() {
+        let mut executed = false;
+        let ret = crate::guard! {
+            sync [executed = &mut executed] {
+                *executed = true;
+                42 // explicitly returning an integer
+            }
+        }
+        .trigger();
+        assert!(executed);
+        assert_eq!(ret, 42);
+    }
 }
 
 #[cfg(all(test, feature = "tokio"))]
