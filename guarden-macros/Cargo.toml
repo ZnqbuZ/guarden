@@ -1,5 +1,5 @@
 [package]
-name = "guarden-macro"
+name = "guarden-macros"
 repository.workspace = true
 version.workspace = true
 edition.workspace = true

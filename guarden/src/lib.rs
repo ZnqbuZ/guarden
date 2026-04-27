@@ -43,7 +43,7 @@ pub mod guard;
 pub mod task;
 
 #[doc(hidden)]
-pub use guarden_macro::__guarded;
+pub use guarden_macros::__guarded;
 
 /// Creates a [`ContextGuard`](guard::ContextGuard) object, binding it to a variable within the local scope.
 ///
