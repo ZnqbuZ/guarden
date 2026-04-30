@@ -11,8 +11,6 @@ description = "Zero-cost abstractions for scoped guards, deferred execution, and
 readme = "README.md"
 
 [lib]
-name = "guarden"
-path = "src/lib.rs"
 
 [features]
 default = ["tokio"]
