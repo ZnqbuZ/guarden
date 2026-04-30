@@ -3,6 +3,7 @@ use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::{Error, Result, bracketed, parenthesized, parse_macro_input};
 use syn::{Expr, Ident, Token};
+use syn::token::Bracket;
 
 mod kw {
     use syn::custom_keyword;
@@ -141,7 +142,7 @@ impl Parse for MacroInput {
             Export::Default
         };
 
-        let args = if input.peek(syn::token::Bracket) {
+        let args = if input.peek(Bracket) {
             let args;
             bracketed!(args in input);
             args.parse_terminated(Arg::parse, Token![,])?
