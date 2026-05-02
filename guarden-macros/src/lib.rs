@@ -10,5 +10,7 @@ mod guarded;
 #[doc(hidden)]
 #[proc_macro]
 pub fn __guarded(input: TokenStream) -> TokenStream {
-    guarded::proc(input)
+    guarded::proc(input.into())
+        .map(Into::into)
+        .unwrap_or_else(|e| e.to_compile_error().into())
 }

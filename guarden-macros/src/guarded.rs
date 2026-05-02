@@ -1,9 +1,9 @@
-use proc_macro::TokenStream;
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
-use syn::{Error, Result, bracketed, parenthesized, parse_macro_input};
-use syn::{Expr, Ident, Token};
 use syn::token::Bracket;
+use syn::{Error, Result, bracketed, parenthesized, parse2};
+use syn::{Expr, Ident, Token};
 
 mod kw {
     use syn::custom_keyword;
@@ -114,7 +114,7 @@ struct MacroInput {
     move_token: Option<Token![move]>,
     export: Export,
     args: Vec<Arg>,
-    body: proc_macro2::TokenStream,
+    body: TokenStream,
 }
 
 impl Parse for MacroInput {
@@ -165,8 +165,8 @@ impl Parse for MacroInput {
     }
 }
 
-pub fn proc(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as MacroInput);
+pub fn proc(input: TokenStream) -> Result<TokenStream> {
+    let input = parse2::<MacroInput>(input)?;
 
     #[allow(non_snake_case)]
     let (SYNC, ASYNC) = if input.sync_token.is_some() {
@@ -241,7 +241,7 @@ pub fn proc(input: TokenStream) -> TokenStream {
         }
     };
 
-    let result = match input.action {
+    let output = match input.action {
         Action::Expr => guard_expr,
         Action::Stmt((mut_token, guard)) => {
             let allow_unused_mut = mut_token.is_none().then(|| quote!(#[allow(unused_mut)]));
@@ -290,5 +290,5 @@ pub fn proc(input: TokenStream) -> TokenStream {
         }
     };
 
-    TokenStream::from(result)
+    Ok(output)
 }
