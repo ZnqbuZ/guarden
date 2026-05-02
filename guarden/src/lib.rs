@@ -37,6 +37,9 @@
 //! }
 //! ```
 
+#![cfg_attr(not(feature = "tokio"), no_std)]
+
+extern crate alloc;
 extern crate self as guarden;
 
 pub mod guard;
@@ -495,8 +498,8 @@ macro_rules! defer {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use alloc::sync::Arc;
+    use core::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn init_capture_sync_evaluates_initializer_once() {
@@ -549,9 +552,9 @@ mod tests {
 
 #[cfg(all(test, feature = "tokio"))]
 mod tokio_tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Duration;
+    use alloc::sync::Arc;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    use core::time::Duration;
 
     #[tokio::test]
     async fn defuse_async_does_not_execute() {

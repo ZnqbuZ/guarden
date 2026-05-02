@@ -1,9 +1,10 @@
 use crate::guard::{CallableGuard, ContextGuard};
-use futures::future::FusedFuture;
-use std::future::Future;
-use std::ops::DerefMut;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use alloc::boxed::Box;
+use core::future::Future;
+use core::ops::DerefMut;
+use core::pin::Pin;
+use core::task::{Context, Poll};
+use futures_core::future::FusedFuture;
 
 // region DetachableTask
 
@@ -226,10 +227,12 @@ impl<Spawner: TaskSpawner<Task>, Task: Future> FusedFuture for DetachableTaskFut
 
 #[cfg(all(test, feature = "tokio"))]
 mod tests {
+    extern crate alloc;
+
     use super::*;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::time::Duration;
+    use alloc::sync::Arc;
+    use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use core::time::Duration;
     use tokio::sync::{mpsc, oneshot};
 
     #[tokio::test]

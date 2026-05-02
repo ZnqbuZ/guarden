@@ -1,7 +1,8 @@
 use crate::task::{DetachableTask, TaskSpawner};
-use std::fmt::Debug;
-use std::mem::ManuallyDrop;
-use std::ops::{Deref, DerefMut};
+use core::fmt;
+use core::fmt::Debug;
+use core::mem::ManuallyDrop;
+use core::ops::{Deref, DerefMut};
 
 /// A callable guard body used by [`ContextGuard`].
 ///
@@ -150,7 +151,7 @@ impl<
     Guard: CallableGuard<SYNC, ASYNC, Context>,
 > Debug for ContextGuard<SYNC, ASYNC, Context, Guard>
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = if !SYNC && ASYNC {
             "ContextGuard::Async"
         } else {
