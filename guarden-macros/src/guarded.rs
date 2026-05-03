@@ -1,8 +1,9 @@
 use proc_macro2::TokenStream;
+use proc_macro_crate::{crate_name, FoundCrate};
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::token::Bracket;
-use syn::{Error, Result, bracketed, parenthesized, parse2};
+use syn::{bracketed, parenthesized, parse2, parse_quote, Error, Path, Result};
 use syn::{Expr, Ident, Token};
 
 mod kw {
@@ -166,6 +167,14 @@ impl Parse for MacroInput {
 }
 
 pub fn proc(input: TokenStream) -> Result<TokenStream> {
+    let krate: Path = match crate_name("guarden") {
+        Ok(FoundCrate::Name(name)) => {
+            let ident = format_ident!("{}", name);
+            parse_quote! { ::#ident }
+        }
+        _ => parse_quote! { ::guarden },
+    };
+
     let input = parse2::<MacroInput>(input)?;
 
     #[allow(non_snake_case)]
@@ -203,7 +212,7 @@ pub fn proc(input: TokenStream) -> Result<TokenStream> {
     let guard_expr = {
         let move_token = input.move_token;
         let body = input.body;
-        let new = quote!(guarden::guard::ContextGuard::<#SYNC, #ASYNC, _, _>::new);
+        let new = quote!(#krate::guard::ContextGuard::<#SYNC, #ASYNC, _, _>::new);
 
         match export {
             Export::Wrapped => {
