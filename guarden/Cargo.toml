@@ -17,7 +17,7 @@ default = ["tokio"]
 tokio = ["dep:tokio"]
 
 [dependencies]
-guarden-macros = { version = "0.1", path = "../guarden-macros" }
+guarden-macros = { workspace = true }
 futures-core = { version = "0.3", default-features = false }
 tokio = { version = "1.52", features = ["rt"], optional = true }
 

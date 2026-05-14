@@ -13,6 +13,9 @@ license = "MIT"
 keywords = ["guard", "defer", "scope", "macro", "cleanup"]
 categories = ["development-tools", "rust-patterns"]
 
+[workspace.dependencies]
+guarden-macros = { version = "0.1.3", path = "guarden-macros" }
+
 [profile.dev]
 panic = "unwind"
 debug = 2
