@@ -1,19 +1,23 @@
-use crate::guard::{CallableGuard, ContextGuard};
+use crate::guard::ContextGuard;
+use crate::guard::Guard;
+use crate::guard::action::Action;
 use alloc::boxed::Box;
+use core::fmt;
+use core::fmt::Debug;
 use core::future::Future;
 use core::ops::DerefMut;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use futures_core::future::FusedFuture;
 
-// region DetachableTask
-
 /// A pinned, heap-allocated task.
 ///
 /// **Why Box?** Heap allocation is required because if the task detaches,
 /// it outlives the current stack frame. `Pin<Box<_>>` ensures its memory address
 /// remains completely stable during and after the transfer.
-type BoxTask<Task> = Pin<Box<Task>>;
+pub type BoxTask<Task> = Pin<Box<Task>>;
+
+// region DetachableTask
 
 struct DetachableTaskContext<Spawner, Task: ?Sized> {
     spawner: Spawner,
@@ -22,13 +26,13 @@ struct DetachableTaskContext<Spawner, Task: ?Sized> {
 
 struct DetachableTaskGuard;
 
-impl<Spawner: TaskSpawner<Task>, Task: ?Sized>
-    CallableGuard<false, false, DetachableTaskContext<Spawner, Task>> for DetachableTaskGuard
+impl<Spawner: TaskSpawner<Task>, Task: ?Sized> Action<DetachableTaskContext<Spawner, Task>>
+    for DetachableTaskGuard
 {
     type Output = ();
 
     #[inline]
-    fn call(self, context: DetachableTaskContext<Spawner, Task>) {
+    fn fire(self, context: DetachableTaskContext<Spawner, Task>) {
         if let Some(task) = context.task {
             context.spawner.spawn(task);
         }
@@ -36,7 +40,7 @@ impl<Spawner: TaskSpawner<Task>, Task: ?Sized>
 }
 
 type DetachableTaskContextGuard<Spawner, Task> =
-    ContextGuard<false, false, DetachableTaskContext<Spawner, Task>, DetachableTaskGuard>;
+    ContextGuard<DetachableTaskContext<Spawner, Task>, DetachableTaskGuard>;
 
 /// A task wrapper that executes inline but automatically detaches to a background spawner
 /// if the current execution context is interrupted or dropped.
@@ -61,8 +65,15 @@ type DetachableTaskContextGuard<Spawner, Task> =
 ///    > newly spawned background task. At this point, **the caller's `task_local!` and TLS state
 ///    > will be silently lost**. Do not rely on implicit local state across `.await` points inside
 ///    > the guarded future.
+#[must_use = "futures do nothing unless you `.await` or poll them; dropping this task will detach it to the background"]
 pub struct DetachableTask<Spawner: TaskSpawner<Task>, Task: ?Sized> {
     guard: DetachableTaskContextGuard<Spawner, Task>,
+}
+
+impl<Spawner: TaskSpawner<Task>, Task: ?Sized> Debug for DetachableTask<Spawner, Task> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DetachableTask").finish_non_exhaustive()
+    }
 }
 
 impl<Spawner: TaskSpawner<Task>, Task: ?Sized> DetachableTask<Spawner, Task> {
@@ -129,6 +140,7 @@ cfg_select! {
         /// The runtime handle is resolved only when a task is detached/spawned,
         /// not when a [`DetachableTask`] is constructed. Calling detach/spawn
         /// outside a Tokio runtime will panic.
+        #[derive(Debug, Default, Clone, Copy)]
         pub struct TokioHandle;
 
         impl<Task> TaskSpawner<Task> for TokioHandle
@@ -137,44 +149,74 @@ cfg_select! {
             <Task as Future>::Output: Send + 'static,
         {
             type Output = JoinHandle<<Task as Future>::Output>;
+
+            #[inline]
             fn spawn(self, task: BoxTask<Task>) -> Self::Output {
                 Handle::current().spawn(task)
             }
         }
+
+        pub type DefaultSpawner = TokioHandle;
+        pub const DEFAULT_SPAWNER: DefaultSpawner = TokioHandle;
     }
 
-    _ => {}
+    _ => {
+        pub type DefaultSpawner = ();
+        pub const DEFAULT_SPAWNER: DefaultSpawner = ();
+    }
 }
 
 impl DetachableTask<(), ()> {
+    // ARCHITECTURE NOTE:
+    // Anchoring constructors on `(), ()` instead of a bounded generic `impl` block
+    // bypasses early trait bound resolution (e.g., `TaskSpawner<Task>`).
+    // This prevents "type annotations needed" inference failures when passing opaque
+    // `async { ... }` blocks whose types are not yet fully resolved.
+
+    /// Creates a detachable task from an already-pinned, heap-allocated task.
+    ///
+    /// Unlike [`new`](Self::new), this accepts a pre-pinned
+    /// `BoxTask<Task>` and does **not** perform an additional heap allocation.
+    /// Use this when the task is already on the heap (e.g. produced by
+    /// type-erased guards).
+    pub fn from_boxed<Spawner: TaskSpawner<Task>, Task: ?Sized>(
+        spawner: Spawner,
+        task: BoxTask<Task>,
+    ) -> DetachableTask<Spawner, Task> {
+        DetachableTask {
+            guard: ContextGuard::assemble(
+                DetachableTaskContext {
+                    spawner,
+                    task: Some(task),
+                },
+                DetachableTaskGuard,
+            ),
+        }
+    }
+
     /// Creates a detachable task with a custom spawner.
     ///
     /// The task starts in inline polling mode and only moves to `spawner`
     /// when detached (explicitly or by drop before completion).
-    pub fn with_spawner<Spawner: TaskSpawner<Task>, Task>(
+    pub fn new<Spawner: TaskSpawner<Task>, Task>(
         spawner: Spawner,
         task: Task,
     ) -> DetachableTask<Spawner, Task> {
-        let context = DetachableTaskContext {
-            spawner,
-            task: Some(Box::pin(task)),
-        };
-        DetachableTask {
-            guard: ContextGuard::with_guard(context, DetachableTaskGuard),
-        }
+        Self::from_boxed(spawner, Box::pin(task))
     }
+}
 
-    /// Creates a detachable task that uses the current Tokio runtime for
-    /// background detachment.
-    #[cfg(feature = "tokio")]
+/// Creates a detachable task that uses the current Tokio runtime for
+/// background detachment.
+impl<Task> From<Task> for DetachableTask<DefaultSpawner, Task::IntoFuture>
+where
+    Task: IntoFuture,
+    Task::IntoFuture: Send + 'static,
+    <Task::IntoFuture as Future>::Output: Send + 'static,
+{
     #[inline]
-    pub fn new<Task>(task: Task) -> DetachableTask<TokioHandle, Task::IntoFuture>
-    where
-        Task: IntoFuture,
-        Task::IntoFuture: Send + 'static,
-        <Task::IntoFuture as Future>::Output: Send + 'static,
-    {
-        Self::with_spawner(TokioHandle, task.into_future())
+    fn from(value: Task) -> Self {
+        DetachableTask::new(DEFAULT_SPAWNER, value.into_future())
     }
 }
 
@@ -198,6 +240,13 @@ pub struct DetachableTaskFuture<Spawner: TaskSpawner<Task>, Task: ?Sized> {
     guard: DetachableTaskContextGuard<Spawner, Task>,
 }
 
+impl<Spawner: TaskSpawner<Task>, Task: ?Sized> Debug for DetachableTaskFuture<Spawner, Task> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DetachableTaskFuture")
+            .finish_non_exhaustive()
+    }
+}
+
 impl<Spawner: TaskSpawner<Task>, Task: ?Sized + Future> Future
     for DetachableTaskFuture<Spawner, Task>
 {
@@ -214,7 +263,7 @@ impl<Spawner: TaskSpawner<Task>, Task: ?Sized + Future> Future
         let context = this.guard.deref_mut();
         // `take()` instead of `as_mut()` for panic safety: a panicking `poll()`
         // must not leave a potentially inconsistent future behind.
-        let mut task = context.task.take().expect("polled after completion");
+        let mut task = context.task.take().expect("task polled after completion");
         let poll = task.as_mut().poll(cx);
         if poll.is_pending() {
             context.task = Some(task);
@@ -249,7 +298,7 @@ mod tests {
         let spawned = Arc::new(AtomicBool::new(false));
         {
             let spawned = spawned.clone();
-            let _task = DetachableTask::new(async move {
+            let _task = DetachableTask::from(async move {
                 spawned.store(true, Ordering::SeqCst);
             });
         }
@@ -268,7 +317,7 @@ mod tests {
         let spawn_count = Arc::new(AtomicUsize::new(0));
         let result = {
             let spawn_count = spawn_count.clone();
-            DetachableTask::with_spawner(
+            DetachableTask::new(
                 move |_| {
                     spawn_count.fetch_add(1, Ordering::SeqCst);
                 },
@@ -288,7 +337,7 @@ mod tests {
 
         {
             let spawn_count = spawn_count.clone();
-            let _task = DetachableTask::with_spawner(
+            let _task = DetachableTask::new(
                 move |f| {
                     spawn_count.fetch_add(1, Ordering::SeqCst);
                     tokio::spawn(async move {
@@ -325,7 +374,7 @@ mod tests {
             };
 
             let spawn_count = spawn_count.clone();
-            let task = DetachableTask::with_spawner(
+            let task = DetachableTask::new(
                 move |f| {
                     spawn_count.fetch_add(1, Ordering::SeqCst);
                     tokio::spawn(async move {
@@ -379,7 +428,7 @@ mod tests {
 
         let task = {
             let detach_count = detach_count.clone();
-            DetachableTask::with_spawner(
+            DetachableTask::new(
                 move |_| {
                     detach_count.fetch_add(1, Ordering::SeqCst);
                 },

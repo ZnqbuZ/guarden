@@ -28,7 +28,7 @@
 //! by explicitly setting the guard to `sync`:
 //!
 //! ```rust,should_panic
-//! # use guarden::guarded;
+//! # use guarden::{guarded, Guard};
 //! let val = "critical failure".to_string();
 //! guarded! {
 //!     sync [val] {
@@ -45,6 +45,8 @@ extern crate self as guarden;
 pub mod guard;
 pub mod task;
 
+pub use guard::{Guard, GuardExt};
+
 #[doc(hidden)]
 pub use guarden_macros::__guarded;
 
@@ -53,7 +55,7 @@ pub use guarden_macros::__guarded;
 /// ### Examples
 ///
 /// ```rust
-/// # use guarden::guarded;
+/// # use guarden::{guarded, Guard};
 /// let v1 = "1".to_string();
 /// let v2 = "2".to_string();
 /// let mut v4 = "4".to_string();
@@ -113,7 +115,7 @@ pub use guarden_macros::__guarded;
 ///
 /// #### Named binding + mut arg visible outside + explicit drop
 /// ```rust
-/// # use guarden::guarded;
+/// # use guarden::{guarded, Guard};
 /// # use std::sync::atomic::{AtomicUsize, Ordering};
 /// # use std::sync::Arc;
 /// let sink = Arc::new(AtomicUsize::new(0));
@@ -134,7 +136,7 @@ pub use guarden_macros::__guarded;
 ///
 /// #### Unnamed statement + expression body + implicit drop at scope end
 /// ```rust
-/// # use guarden::guarded;
+/// # use guarden::{guarded, Guard};
 /// # use std::sync::atomic::{AtomicUsize, Ordering};
 /// # use std::sync::Arc;
 /// let sink = Arc::new(AtomicUsize::new(0));
@@ -146,7 +148,7 @@ pub use guarden_macros::__guarded;
 ///
 /// #### Explicit sync + panic path propagates on drop
 /// ```rust
-/// # use guarden::guarded;
+/// # use guarden::{guarded, Guard};
 /// let dropped = std::panic::catch_unwind(|| {
 ///     guarded! {
 ///         sync {
@@ -162,7 +164,7 @@ pub use guarden_macros::__guarded;
 /// # #[cfg(feature = "tokio")]
 /// # {
 /// # tokio_test::block_on(async {
-/// # use guarden::guarded;
+/// # use guarden::{guarded, Guard};
 /// let (tx, rx) = tokio::sync::oneshot::channel();
 /// {
 ///     let tx = Some(tx);
@@ -186,7 +188,7 @@ pub use guarden_macros::__guarded;
 ///
 /// #### Init captures stay private and do not shadow outer locals
 /// ```rust
-/// # use guarden::guarded;
+/// # use guarden::{guarded, Guard};
 /// # use std::sync::atomic::{AtomicUsize, Ordering};
 /// # use std::sync::Arc;
 /// let sink = Arc::new(AtomicUsize::new(0));
@@ -211,7 +213,7 @@ pub use guarden_macros::__guarded;
 /// # #[cfg(feature = "tokio")]
 /// # {
 /// # tokio_test::block_on(async {
-/// # use guarden::guarded;
+/// # use guarden::{guarded, Guard};
 /// let (tx, rx) = tokio::sync::oneshot::channel();
 /// {
 ///     guarded!([mut tx = Some(tx), value = 13usize] {
@@ -234,7 +236,7 @@ pub use guarden_macros::__guarded;
 ///
 /// #### Export all captured variables
 /// ```rust
-/// # use guarden::guarded;
+/// # use guarden::{guarded, Guard};
 /// # use std::sync::atomic::{AtomicUsize, Ordering};
 /// # use std::sync::Arc;
 /// let sink = Arc::new(AtomicUsize::new(0));
@@ -259,7 +261,7 @@ pub use guarden_macros::__guarded;
 ///
 /// #### Wrapped captures accessed via mutable guard
 /// ```rust
-/// # use guarden::guarded;
+/// # use guarden::{guarded, Guard};
 /// # use std::sync::atomic::{AtomicUsize, Ordering};
 /// # use std::sync::Arc;
 /// let sink = Arc::new(AtomicUsize::new(0));
@@ -300,7 +302,7 @@ macro_rules! guarded {
 /// ### Examples
 ///
 /// ```rust
-/// # use guarden::guard;
+/// # use guarden::{guard, Guard};
 /// let v1 = "1".to_string();
 /// let v2 = "2".to_string();
 /// let mut v4 = "4".to_string();
@@ -355,7 +357,7 @@ macro_rules! guarded {
 ///
 /// #### Block body + trailing comma inits + trigger()
 /// ```rust
-/// # use guarden::guard;
+/// # use guarden::{guard, Guard};
 /// # use std::sync::atomic::{AtomicUsize, Ordering};
 /// # use std::sync::Arc;
 /// let sink = Arc::new(AtomicUsize::new(0));
@@ -368,7 +370,7 @@ macro_rules! guarded {
 ///
 /// #### Expression body (no braces)
 /// ```rust
-/// # use guarden::guard;
+/// # use guarden::{guard, Guard};
 /// # use std::sync::atomic::{AtomicUsize, Ordering};
 /// # use std::sync::Arc;
 /// let sink = Arc::new(AtomicUsize::new(0));
@@ -379,7 +381,7 @@ macro_rules! guarded {
 ///
 /// #### Explicit sync + no inits form
 /// ```rust
-/// # use guarden::guard;
+/// # use guarden::{guard, Guard};
 /// # use std::sync::atomic::{AtomicUsize, Ordering};
 /// # use std::sync::Arc;
 /// let sink = Arc::new(AtomicUsize::new(0));
@@ -395,7 +397,7 @@ macro_rules! guarded {
 ///
 /// #### Move capture + defuse() prevents execution
 /// ```rust
-/// # use guarden::guard;
+/// # use guarden::{guard, Guard};
 /// # use std::sync::atomic::{AtomicUsize, Ordering};
 /// # use std::sync::Arc;
 /// let sink = Arc::new(AtomicUsize::new(0));
@@ -417,7 +419,7 @@ macro_rules! guarded {
 /// # #[cfg(feature = "tokio")]
 /// # {
 /// # tokio_test::block_on(async {
-/// # use guarden::guard;
+/// # use guarden::{guard, Guard};
 /// # use std::sync::atomic::{AtomicUsize, Ordering};
 /// # use std::sync::Arc;
 /// let sink = Arc::new(AtomicUsize::new(0));
@@ -432,7 +434,7 @@ macro_rules! guarded {
 ///
 /// #### Init capture (immutable) + trigger()
 /// ```rust
-/// # use guarden::guard;
+/// # use guarden::{guard, Guard};
 /// # use std::sync::atomic::{AtomicUsize, Ordering};
 /// # use std::sync::Arc;
 /// let sink = Arc::new(AtomicUsize::new(0));
@@ -445,7 +447,7 @@ macro_rules! guarded {
 ///
 /// #### Init capture (mutable) + trigger()
 /// ```rust
-/// # use guarden::guard;
+/// # use guarden::{guard, Guard};
 /// # use std::sync::atomic::{AtomicUsize, Ordering};
 /// # use std::sync::Arc;
 /// let sink = Arc::new(AtomicUsize::new(0));
@@ -459,7 +461,7 @@ macro_rules! guarded {
 ///
 /// #### Wrapped captures returned as expression
 /// ```rust
-/// # use guarden::guard;
+/// # use guarden::{guard, Guard};
 /// # use std::sync::atomic::{AtomicUsize, Ordering};
 /// # use std::sync::Arc;
 /// let sink = Arc::new(AtomicUsize::new(0));
@@ -498,6 +500,7 @@ macro_rules! defer {
 
 #[cfg(test)]
 mod tests {
+    use crate::guard::Guard;
     use alloc::sync::Arc;
     use core::sync::atomic::{AtomicUsize, Ordering};
 
@@ -552,6 +555,7 @@ mod tests {
 
 #[cfg(all(test, feature = "tokio"))]
 mod tokio_tests {
+    use crate::guard::Guard;
     use alloc::sync::Arc;
     use core::sync::atomic::{AtomicUsize, Ordering};
     use core::time::Duration;

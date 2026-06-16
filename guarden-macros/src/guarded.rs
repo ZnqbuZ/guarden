@@ -1,9 +1,9 @@
+use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::TokenStream;
-use proc_macro_crate::{crate_name, FoundCrate};
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::token::Bracket;
-use syn::{bracketed, parenthesized, parse2, parse_quote, Error, Path, Result};
+use syn::{Error, Path, Result, bracketed, parenthesized, parse_quote, parse2};
 use syn::{Expr, Ident, Token};
 
 mod kw {
@@ -166,7 +166,7 @@ impl Parse for MacroInput {
     }
 }
 
-pub fn proc(input: TokenStream) -> Result<TokenStream> {
+pub(crate) fn proc(input: TokenStream) -> Result<TokenStream> {
     let krate: Path = match crate_name("guarden") {
         Ok(FoundCrate::Name(name)) => {
             let ident = format_ident!("{}", name);
@@ -176,13 +176,6 @@ pub fn proc(input: TokenStream) -> Result<TokenStream> {
     };
 
     let input = parse2::<MacroInput>(input)?;
-
-    #[allow(non_snake_case)]
-    let (SYNC, ASYNC) = if input.sync_token.is_some() {
-        (quote!(true), quote!(false))
-    } else {
-        (quote!(false), quote!(_))
-    };
 
     let mut inits = Vec::new();
     let mut vars = Vec::new();
@@ -212,7 +205,11 @@ pub fn proc(input: TokenStream) -> Result<TokenStream> {
     let guard_expr = {
         let move_token = input.move_token;
         let body = input.body;
-        let new = quote!(#krate::guard::ContextGuard::<#SYNC, #ASYNC, _, _>::new);
+        let new = if input.sync_token.is_some() {
+            quote!(#krate::guard::ContextGuard::assemble)
+        } else {
+            quote!(#krate::guard::ContextGuard::new)
+        };
 
         match export {
             Export::Wrapped => {
@@ -241,10 +238,12 @@ pub fn proc(input: TokenStream) -> Result<TokenStream> {
                 // NOTE: When there is exactly 1 capture (e.g., `[mut a]`), `#(#inits),*` expands to `(a)`,
                 // which is NOT a tuple but a parenthesized scalar expression.
                 quote! {
-                    #new(
+                    match #krate::guard::__fn((
                         (#(#inits),*),
                         #move_token |#[allow(unused_parens, unused_mut)] (#(#vars),*)| { #body }
-                    )
+                    )) {
+                        (context, action) => #new(context, action)
+                    }
                 }
             }
         }
