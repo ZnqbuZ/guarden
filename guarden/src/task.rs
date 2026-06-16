@@ -15,14 +15,14 @@ use futures_core::future::FusedFuture;
 /// remains completely stable during and after the transfer.
 type BoxTask<Task> = Pin<Box<Task>>;
 
-struct DetachableTaskContext<Spawner, Task> {
+struct DetachableTaskContext<Spawner, Task: ?Sized> {
     spawner: Spawner,
     task: Option<BoxTask<Task>>,
 }
 
 struct DetachableTaskGuard;
 
-impl<Spawner: TaskSpawner<Task>, Task>
+impl<Spawner: TaskSpawner<Task>, Task: ?Sized>
     CallableGuard<false, false, DetachableTaskContext<Spawner, Task>> for DetachableTaskGuard
 {
     type Output = ();
@@ -61,11 +61,11 @@ type DetachableTaskContextGuard<Spawner, Task> =
 ///    > newly spawned background task. At this point, **the caller's `task_local!` and TLS state
 ///    > will be silently lost**. Do not rely on implicit local state across `.await` points inside
 ///    > the guarded future.
-pub struct DetachableTask<Spawner: TaskSpawner<Task>, Task> {
+pub struct DetachableTask<Spawner: TaskSpawner<Task>, Task: ?Sized> {
     guard: DetachableTaskContextGuard<Spawner, Task>,
 }
 
-impl<Spawner: TaskSpawner<Task>, Task> DetachableTask<Spawner, Task> {
+impl<Spawner: TaskSpawner<Task>, Task: ?Sized> DetachableTask<Spawner, Task> {
     /// Forces detachment immediately.
     ///
     /// If the inner task has not completed yet, it is handed to the configured
@@ -88,7 +88,7 @@ impl<Spawner: TaskSpawner<Task>, Task> DetachableTask<Spawner, Task> {
 /// Spawns a detached task produced by [`DetachableTask`].
 ///
 /// Implement this trait to integrate with a runtime or custom executor.
-pub trait TaskSpawner<Task> {
+pub trait TaskSpawner<Task: ?Sized> {
     /// Return type of the spawn operation.
     type Output;
 
@@ -98,7 +98,7 @@ pub trait TaskSpawner<Task> {
         Self: Sized;
 }
 
-impl<F, Output, Task> TaskSpawner<Task> for F
+impl<F, Output, Task: ?Sized> TaskSpawner<Task> for F
 where
     F: FnOnce(BoxTask<Task>) -> Output,
 {
@@ -110,7 +110,7 @@ where
     }
 }
 
-impl<Task> TaskSpawner<Task> for () {
+impl<Task: ?Sized> TaskSpawner<Task> for () {
     type Output = BoxTask<Task>;
 
     #[inline]
@@ -133,7 +133,7 @@ cfg_select! {
 
         impl<Task> TaskSpawner<Task> for TokioHandle
         where
-            Task: Future + Send + 'static,
+            Task: ?Sized + Future + Send + 'static,
             <Task as Future>::Output: Send + 'static,
         {
             type Output = JoinHandle<<Task as Future>::Output>;
@@ -178,7 +178,9 @@ impl DetachableTask<(), ()> {
     }
 }
 
-impl<Spawner: TaskSpawner<Task>, Task: Future> IntoFuture for DetachableTask<Spawner, Task> {
+impl<Spawner: TaskSpawner<Task>, Task: ?Sized + Future> IntoFuture
+    for DetachableTask<Spawner, Task>
+{
     type Output = Task::Output;
     type IntoFuture = DetachableTaskFuture<Spawner, Task>;
 
@@ -192,11 +194,13 @@ impl<Spawner: TaskSpawner<Task>, Task: Future> IntoFuture for DetachableTask<Spa
 ///
 /// It polls the underlying task inline; if dropped while pending, drop logic on
 /// the inner guard detaches the remainder to the configured spawner.
-pub struct DetachableTaskFuture<Spawner: TaskSpawner<Task>, Task> {
+pub struct DetachableTaskFuture<Spawner: TaskSpawner<Task>, Task: ?Sized> {
     guard: DetachableTaskContextGuard<Spawner, Task>,
 }
 
-impl<Spawner: TaskSpawner<Task>, Task: Future> Future for DetachableTaskFuture<Spawner, Task> {
+impl<Spawner: TaskSpawner<Task>, Task: ?Sized + Future> Future
+    for DetachableTaskFuture<Spawner, Task>
+{
     type Output = Task::Output;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -219,7 +223,9 @@ impl<Spawner: TaskSpawner<Task>, Task: Future> Future for DetachableTaskFuture<S
     }
 }
 
-impl<Spawner: TaskSpawner<Task>, Task: Future> FusedFuture for DetachableTaskFuture<Spawner, Task> {
+impl<Spawner: TaskSpawner<Task>, Task: ?Sized + Future> FusedFuture
+    for DetachableTaskFuture<Spawner, Task>
+{
     #[inline]
     fn is_terminated(&self) -> bool {
         self.guard.task.is_none()
