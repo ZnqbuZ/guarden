@@ -168,12 +168,13 @@ impl DetachableTask<(), ()> {
     /// background detachment.
     #[cfg(feature = "tokio")]
     #[inline]
-    pub fn new<Task>(task: Task) -> DetachableTask<TokioHandle, Task>
+    pub fn new<Task>(task: Task) -> DetachableTask<TokioHandle, Task::IntoFuture>
     where
-        Task: Future + Send + 'static,
-        <Task as Future>::Output: Send + 'static,
+        Task: IntoFuture,
+        Task::IntoFuture: Send + 'static,
+        <Task::IntoFuture as Future>::Output: Send + 'static,
     {
-        Self::with_spawner(TokioHandle, task)
+        Self::with_spawner(TokioHandle, task.into_future())
     }
 }
 
