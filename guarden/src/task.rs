@@ -208,6 +208,8 @@ impl<Spawner: TaskSpawner<Task>, Task: Future> Future for DetachableTaskFuture<S
         // 3. We never expose a mutable, unpinned reference to the underlying task.
         let this = unsafe { self.get_unchecked_mut() };
         let context = this.guard.deref_mut();
+        // `take()` instead of `as_mut()` for panic safety: a panicking `poll()`
+        // must not leave a potentially inconsistent future behind.
         let mut task = context.task.take().expect("polled after completion");
         let poll = task.as_mut().poll(cx);
         if poll.is_pending() {
