@@ -496,11 +496,12 @@ macro_rules! defer {
     };
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "tokio"))]
 mod tests {
 
     use alloc::sync::Arc;
     use core::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
 
     #[test]
     fn init_capture_sync_evaluates_initializer_once() {
@@ -549,13 +550,6 @@ mod tests {
         assert!(executed);
         assert_eq!(ret, 42);
     }
-}
-
-#[cfg(all(test, feature = "tokio"))]
-mod tokio_tests {
-    use alloc::sync::Arc;
-    use core::sync::atomic::{AtomicUsize, Ordering};
-    use core::time::Duration;
 
     #[tokio::test]
     async fn defuse_async_does_not_execute() {
@@ -573,5 +567,43 @@ mod tokio_tests {
 
         tokio::time::sleep(Duration::from_millis(20)).await;
         assert_eq!(called.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn test_macro_hygiene() {
+        let guard = 1;
+        let context = 2;
+        let action = 3;
+        let state = 4;
+        let inner = 5;
+
+        crate::guarded! {
+            sync [guard, mut context, action = action * 2, state, inner] {
+                context += guard + action + state + inner;
+                // guard = 1, action = 6, state = 4, inner = 5. Sum = 16. Original context = 2. Total = 18.
+                assert_eq!(context, 18);
+            }
+        }
+    }
+
+    #[test]
+    fn test_thread_safety() {
+        use crate::guard::ContextGuard;
+        use crate::guard::boxed::{BoxAsyncGuard, BoxSyncGuard};
+
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        // Basic Guard
+        assert_send::<ContextGuard<alloc::string::String, fn(alloc::string::String)>>();
+        assert_sync::<ContextGuard<alloc::string::String, fn(alloc::string::String)>>();
+
+        // Boxed Sync
+        assert_send::<BoxSyncGuard<alloc::string::String, ()>>();
+        assert_sync::<BoxSyncGuard<alloc::string::String, ()>>();
+
+        // Boxed Async
+        assert_send::<BoxAsyncGuard<alloc::string::String, ()>>();
+        assert_sync::<BoxAsyncGuard<alloc::string::String, ()>>();
     }
 }

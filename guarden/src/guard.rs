@@ -152,6 +152,34 @@ impl<Context, A: Action<Context>> Drop for ContextGuard<Context, A> {
     /// previous panic, Rust will trigger a double-panic and immediately **abort the process**.
     /// This is the standard behavior for `Drop` implementations in Rust.
     ///
+    /// ```rust
+    /// use std::process::Command;
+    /// use std::env;
+    ///
+    /// // We run the abort in a subprocess so it doesn't fail the test suite.
+    /// if env::var("RUN_ABORT_TEST").is_ok() {
+    ///     struct PanicOnDrop;
+    ///     impl Drop for PanicOnDrop {
+    ///         fn drop(&mut self) {
+    ///             panic!("thread panic"); // 1. Starts unwinding
+    ///         }
+    ///     }
+    ///     let _trigger_unwind = PanicOnDrop;
+    ///     
+    ///     // 2. Guard panics during unwind -> process abort
+    ///     let _g = guarden::guard!(sync [] { panic!("guard panic"); });
+    ///     return;
+    /// }
+    ///
+    /// let status = Command::new(env::current_exe().unwrap())
+    ///     .env("RUN_ABORT_TEST", "1")
+    ///     .status()
+    ///     .unwrap();
+    ///
+    /// // Process should have aborted (non-zero exit status).
+    /// assert!(!status.success());
+    /// ```
+    ///
     /// Since `guarden` is often used for critical cleanup operations, if process aborts are
     /// unacceptable for your server architecture, you must ensure that your guard closures
     /// do not contain diverging operations (like `panic!`, `unwrap()`, or `expect()`) that
@@ -173,4 +201,151 @@ where
     F: FnOnce(V) -> R,
 {
     value
+}
+
+#[cfg(all(test, feature = "tokio"))]
+mod tests {
+    use super::*;
+
+    use alloc::sync::Arc;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    #[test]
+    fn sync_disassemble() {
+        let state = Arc::new(AtomicUsize::new(0));
+        let guard = ContextGuard::new(state.clone(), |s| {
+            s.fetch_add(1, Ordering::SeqCst);
+        });
+
+        // Disassemble the guard
+        let (context, action) = guard.disassemble();
+
+        // State should not have changed
+        assert_eq!(state.load(Ordering::SeqCst), 0);
+
+        // We can manually fire the action later
+        action.fire(context);
+        assert_eq!(state.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn sync_defuse() {
+        let state = Arc::new(AtomicUsize::new(0));
+        let guard = ContextGuard::new(state.clone(), |s| {
+            s.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let context = guard.defuse();
+
+        // State should not have changed, and action is dropped
+        assert_eq!(state.load(Ordering::SeqCst), 0);
+
+        // We successfully recovered the context
+        assert_eq!(context.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn sync_trigger() {
+        let state = Arc::new(AtomicUsize::new(0));
+        let guard = ContextGuard::assemble(state.clone(), |s: Arc<AtomicUsize>| {
+            s.fetch_add(1, Ordering::SeqCst);
+            "result"
+        });
+
+        // Trigger should return the action's output
+        let res = guard.trigger();
+
+        assert_eq!(res, "result");
+        assert_eq!(state.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn sync_map() {
+        let state = Arc::new(AtomicUsize::new(0));
+
+        let guard = ContextGuard::new(state.clone(), |s| {
+            s.fetch_add(1, Ordering::SeqCst);
+        });
+
+        // Map the action to a new closure that does something else
+        let mapped_guard = guard.map(|original_action| {
+            // We use action::closure instead of implementing Action manually
+            move |s: Arc<AtomicUsize>| {
+                // Do something before
+                s.fetch_add(10, Ordering::SeqCst);
+                // Execute original
+                original_action.fire(s.clone());
+                // Do something after
+                s.fetch_add(100, Ordering::SeqCst);
+            }
+        });
+
+        mapped_guard.trigger();
+
+        // 10 + 1 + 100 = 111
+        assert_eq!(state.load(Ordering::SeqCst), 111);
+    }
+
+    #[tokio::test]
+    async fn async_disassemble() {
+        let state = Arc::new(AtomicUsize::new(0));
+        let guard = ContextGuard::new(state.clone(), |s| async move {
+            s.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let (context, action) = guard.disassemble();
+        assert_eq!(state.load(Ordering::SeqCst), 0);
+
+        action.fire(context).await;
+        assert_eq!(state.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn async_defuse() {
+        let state = Arc::new(AtomicUsize::new(0));
+        let guard = ContextGuard::new(state.clone(), |s| async move {
+            s.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let _context = guard.defuse();
+
+        // Sleep to ensure no detached task runs
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(state.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn async_trigger() {
+        let state = Arc::new(AtomicUsize::new(0));
+        let guard = ContextGuard::new(state.clone(), |s| async move {
+            s.fetch_add(1, Ordering::SeqCst);
+            "async_result"
+        });
+
+        let res = guard.trigger().await;
+
+        assert_eq!(res, "async_result");
+        assert_eq!(state.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn async_map() {
+        let state = Arc::new(AtomicUsize::new(0));
+
+        let guard = ContextGuard::new(state.clone(), |s| async move {
+            s.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let mapped_guard = guard.map(|original_action| {
+            move |s: Arc<AtomicUsize>| async move {
+                s.fetch_add(10, Ordering::SeqCst);
+                original_action.fire(s.clone()).await;
+                s.fetch_add(100, Ordering::SeqCst);
+            }
+        });
+
+        mapped_guard.trigger().await;
+        assert_eq!(state.load(Ordering::SeqCst), 111);
+    }
 }

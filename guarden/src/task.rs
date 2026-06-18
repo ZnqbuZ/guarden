@@ -445,4 +445,59 @@ mod tests {
         assert_eq!(poll_count.load(Ordering::SeqCst), 1);
         assert_eq!(detach_count.load(Ordering::SeqCst), 0);
     }
+
+    #[tokio::test]
+    async fn double_poll_panics() {
+        use core::future::Future;
+        use core::future::IntoFuture;
+        use std::pin::Pin;
+        use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+
+        let mut task = crate::guard!([val = 1] async move { val })
+            .trigger()
+            .into_future();
+
+        const VTABLE: RawWakerVTable =
+            RawWakerVTable::new(|x| RawWaker::new(x, &VTABLE), |_| {}, |_| {}, |_| {});
+        let waker = unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) };
+        let mut cx = Context::from_waker(&waker);
+
+        // First poll completes it
+        let mut task_pin = unsafe { Pin::new_unchecked(&mut task) };
+        assert!(matches!(task_pin.as_mut().poll(&mut cx), Poll::Ready(1)));
+
+        // Second poll should panic
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut task_pin = unsafe { Pin::new_unchecked(&mut task) };
+            let _ = task_pin.as_mut().poll(&mut cx);
+        }));
+
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn custom_spawner() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        #[derive(Clone)]
+        struct MockSpawner(Arc<AtomicUsize>);
+        impl<T> crate::task::TaskSpawner<T> for MockSpawner {
+            type Output = ();
+            fn spawn(self, _task: crate::task::BoxTask<T>) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let spawn_count = Arc::new(AtomicUsize::new(0));
+        let spawner = MockSpawner(spawn_count.clone());
+
+        {
+            // We use with_spawner to test custom spawning
+            let _guard =
+                crate::guard::ContextGuard::with_spawner((), spawner, |_: ()| async move {});
+        } // guard drops here and spawns
+
+        assert_eq!(spawn_count.load(Ordering::SeqCst), 1);
+    }
 }
