@@ -1,6 +1,5 @@
-use crate::Guard;
+use crate::guard::ContextGuard;
 use crate::guard::action::{Action, ActionState, Spawn};
-use crate::guard::{ContextGuard, GuardExt};
 use crate::task::{BoxTask, DetachableTask, TaskSpawner};
 use alloc::boxed::Box;
 use core::future::Future;
@@ -74,13 +73,20 @@ pub struct BoxContextGuard<Context, Output> {
     guard: ContextGuard<Context, BoxAction<Context, Output>>,
 }
 
-impl<Context, Output> Guard for BoxContextGuard<Context, Output> {
-    type Context = Context;
-    type Action = BoxAction<Context, Output>;
+impl<Context, Output> BoxContextGuard<Context, Output> {
+    #[inline]
+    pub fn disassemble(self) -> (Context, BoxAction<Context, Output>) {
+        self.guard.disassemble()
+    }
 
     #[inline]
-    fn disassemble(self) -> (Self::Context, Self::Action) {
-        self.guard.disassemble()
+    pub fn trigger(self) -> Output {
+        self.guard.trigger()
+    }
+
+    #[inline]
+    pub fn defuse(self) -> Context {
+        self.guard.defuse()
     }
 }
 
@@ -182,7 +188,7 @@ pub type BoxAsyncGuard<Context, Output = ()> =
 
 #[cfg(all(test, feature = "tokio"))]
 mod tests {
-    use crate::{guard, guard::Guard};
+    use crate::guard;
     use alloc::sync::Arc;
     use core::sync::atomic::{AtomicUsize, Ordering};
     use core::time::Duration;

@@ -1,5 +1,5 @@
 use crate::guard;
-use crate::guard::Guard;
+
 use crate::task::{DEFAULT_SPAWNER, DefaultSpawner, DetachableTask, TaskSpawner};
 use core::fmt;
 use core::fmt::Debug;

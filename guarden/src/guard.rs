@@ -9,52 +9,6 @@ use core::fmt::Debug;
 use core::mem::ManuallyDrop;
 use core::ops::{Deref, DerefMut};
 
-/// Common operations available on all context guards.
-pub trait Guard: Sized {
-    type Context;
-    type Action: Action<Self::Context>;
-
-    /// Disarms the guard and returns both the context and the guard action.
-    ///
-    /// Unlike [`defuse`](Self::defuse), which drops the guard action, this
-    /// method returns both parts, allowing reuse or re-wrapping.
-    fn disassemble(self) -> (Self::Context, Self::Action);
-
-    /// Defuses the guard and returns the owned context without executing it.
-    ///
-    /// Use this when cleanup should be canceled and captured state should be
-    /// recovered by the caller.
-    #[inline]
-    fn defuse(self) -> Self::Context {
-        let (context, _) = self.disassemble();
-        context
-    }
-
-    /// Executes the guard body immediately and consumes the guard.
-    ///
-    /// This bypasses drop-based execution by running the closure eagerly.
-    #[inline]
-    fn trigger(self) -> <Self::Action as Action<Self::Context>>::Output {
-        let (context, action) = self.disassemble();
-        action.fire(context)
-    }
-}
-
-/// Extension trait for transforming guard actions.
-pub trait GuardExt: Guard {
-    /// The guard type returned when its action is transformed.
-    type Mapped<B: Action<Self::Context>>: Guard<Context = Self::Context, Action = B>;
-
-    /// Transforms the guard's action using the provided closure.
-    ///
-    /// This is useful for wrapping or modifying the guard's execution logic while
-    /// preserving the same context.
-    fn map<B, F>(self, f: F) -> Self::Mapped<B>
-    where
-        B: Action<Self::Context>,
-        F: FnOnce(Self::Action) -> B;
-}
-
 struct ContextGuardInner<Context, Action> {
     context: Context,
     action: Action,
@@ -126,31 +80,44 @@ impl<Context, A: Action<Context>> ContextGuard<Context, A> {
             inner: ManuallyDrop::new(ContextGuardInner { context, action }),
         }
     }
-}
-
-impl<Context, A: Action<Context>> Guard for ContextGuard<Context, A> {
-    type Context = Context;
-    type Action = A;
-
+    /// Disarms the guard and returns both the context and the guard action.
+    ///
+    /// Unlike [`defuse`](Self::defuse), which drops the guard action, this
+    /// method returns both parts, allowing reuse or re-wrapping.
     #[inline]
-    fn disassemble(self) -> (Self::Context, Self::Action) {
+    pub fn disassemble(self) -> (Context, A) {
         let mut this = ManuallyDrop::new(self);
         unsafe {
             let ContextGuardInner { context, action } = ManuallyDrop::take(&mut this.inner);
             (context, action)
         }
     }
-}
 
-impl<Context, A: Action<Context>> GuardExt for ContextGuard<Context, A> {
-    type Mapped<B: Action<Context>> = ContextGuard<Context, B>;
-
+    /// Defuses the guard and returns the owned context without executing it.
+    ///
+    /// Use this when cleanup should be canceled and captured state should be
+    /// recovered by the caller.
     #[inline]
-    fn map<B, F>(self, f: F) -> Self::Mapped<B>
-    where
-        B: Action<Context>,
-        F: FnOnce(Self::Action) -> B,
-    {
+    pub fn defuse(self) -> Context {
+        let (context, _) = self.disassemble();
+        context
+    }
+
+    /// Executes the guard body immediately and consumes the guard.
+    ///
+    /// This bypasses drop-based execution by running the closure eagerly.
+    #[inline]
+    pub fn trigger(self) -> A::Output {
+        let (context, action) = self.disassemble();
+        action.fire(context)
+    }
+
+    /// Transforms the guard's action using the provided closure.
+    ///
+    /// This is useful for wrapping or modifying the guard's execution logic while
+    /// preserving the same context.
+    #[inline]
+    pub fn map<B: Action<Context>>(self, f: impl FnOnce(A) -> B) -> ContextGuard<Context, B> {
         let (context, action) = self.disassemble();
         ContextGuard::assemble(context, f(action))
     }
