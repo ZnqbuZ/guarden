@@ -6,7 +6,7 @@ members = [
 
 [workspace.package]
 repository = "https://github.com/ZnqbuZ/guarden"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
@@ -14,7 +14,7 @@ keywords = ["guard", "defer", "scope", "macro", "cleanup"]
 categories = ["development-tools", "rust-patterns"]
 
 [workspace.dependencies]
-guarden-macros = { version = "0.2.0", path = "guarden-macros" }
+guarden-macros = { version = "0.3.0", path = "guarden-macros" }
 
 [profile.dev]
 panic = "unwind"
