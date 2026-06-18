@@ -46,7 +46,7 @@ pub trait BoxedAction<Context> {
 // Blanket Boxing for any type that implements BoxAction
 impl<Context, A> ActionBoxExt<Context> for A
 where
-    A: BoxedAction<Context> + 'static,
+    A: BoxedAction<Context> + Send + Sync + 'static,
 {
     type Boxed = BoxAction<Context, A::Output>;
 
@@ -57,7 +57,7 @@ where
 }
 
 /// A boxed, type-erased action.
-type BoxAction<Context, Output> = Box<dyn BoxedAction<Context, Output = Output>>;
+type BoxAction<Context, Output> = Box<dyn BoxedAction<Context, Output = Output> + Send + Sync>;
 
 impl<Context, Output> Action<Context> for BoxAction<Context, Output> {
     type Output = Output;
@@ -168,9 +168,7 @@ where
     type Output = DetachableTask<BoxedSpawner, dyn BoxedTask<Output = Task::Output>>;
 
     fn fire(mut self: Box<Self>, context: Context) -> Self::Output {
-        let fut = self.ignite(context);
-        self.state = ActionState::Fired(fut);
-
+        self.state = ActionState::Fired(self.ignite(context));
         DetachableTask::from_boxed(BoxedSpawner, Pin::from(self))
     }
 }
