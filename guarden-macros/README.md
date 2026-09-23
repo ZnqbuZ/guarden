@@ -1,31 +1,36 @@
-# ⚙️ guarden-macros
+# guarden-macros
 
 [![Crates.io](https://img.shields.io/crates/v/guarden-macros.svg)](https://crates.io/crates/guarden-macros)
-[![Documentation](https://docs.rs/guarden-macros/badge.svg)](https://docs.rs/guarden-macros)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/ZnqbuZ/guarden/blob/master/LICENSE)
 
-The procedural macro backend for the [`guarden`](https://crates.io/crates/guarden) crate.
+Procedural macro backend for [guarden](https://crates.io/crates/guarden), a Rust
+library for scoped cleanup and async task detachment.
 
-This crate provides the low-level `__guarded!` procedural macro engine that powers the public, ergonomic macros exported by `guarden`:
-- `guarded!`
-- `guard!`
-- `defer!`
+## Using guarden
 
-> **⚠️ Note for Users:**  
-> You should **not** depend on this crate directly. Please depend on the main [`guarden`](https://crates.io/crates/guarden) crate, which re-exports everything you need and provides the necessary runtime context and traits.
+Add the public library to your dependencies:
 
-## 🧠 How it Works
+```toml
+[dependencies]
+guarden = "0.3"
+```
 
-The `guarden-macros` engine is responsible for parsing custom syntax and expanding it into highly optimized, zero-cost Rust abstractions. Its capabilities include:
+`guarden` re-exports `guard!`, `guarded!`, and `defer!`, and provides the guard and
+task types used by their expansions. Applications do not need a direct dependency
+on `guarden-macros`.
 
-- **Syntax Parsing**: Robustly parsing capturing clauses (e.g., `[mut value, state = state.clone()]`) and complex export modes (`export(wrapped)`, `export(all)`).
-- **Type-Inference Gymnastics**: Emitting smart compiler hints (like generating generic closures bounded by `FnOnce(Context) -> _R`) to flawlessly distinguish between synchronous blocks and `async` futures without requiring explicit type annotations from the user.
-- **Scope Rewriting**: Generating hidden, local structs (ZSTs and capturing structs) to hold state locally, ensuring memory locality and deferring background spawns strictly as a fallback.
+See the [quick start](https://github.com/ZnqbuZ/guarden#installation) and
+[API documentation](https://docs.rs/guarden) for examples.
 
-## 📦 Versioning
+## Implementation
 
-This crate is tightly coupled to `guarden`. It tracks the exact same version number as the parent crate and is released in lockstep.
+This crate exposes the internal `__guarded!` macro. It parses capture lists,
+binding options, and export modes, then generates context storage and closures
+that use the runtime types in `guarden`.
 
-## 📄 License
+Both crates live in the [same workspace](https://github.com/ZnqbuZ/guarden) and
+share its version. The internal macro interface is intended for use by `guarden`.
 
-This project is licensed under the [MIT License](../LICENSE).
+## License
+
+[MIT](https://github.com/ZnqbuZ/guarden/blob/master/LICENSE)

@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Zero-cost abstractions for scoped guards, deferred execution, and async task detachment"
+description = "Scoped cleanup and async guards that await inline and detach on cancellation"
 readme = "README.md"
 
 [lib]
