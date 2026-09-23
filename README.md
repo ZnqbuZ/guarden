@@ -54,11 +54,11 @@ Detached work needs a running executor. See the
 
 ## Installation
 
-Requires **Rust 1.95 or newer**. The examples below target the repository's `0.3.0` API.
+Requires **Rust 1.95 or newer**. The examples below target the repository's `0.4` API.
 
 ```toml
 [dependencies]
-guarden = "0.3"
+guarden = "0.4"
 ```
 
 Tokio integration is enabled by default. To run the async example below, also add
