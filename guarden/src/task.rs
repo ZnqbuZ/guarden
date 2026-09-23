@@ -41,12 +41,17 @@ impl<Spawner: TaskSpawner<Task>, Task: ?Sized> Action<DetachableTaskContext<Spaw
 type DetachableTaskContextGuard<Spawner, Task> =
     ContextGuard<DetachableTaskContext<Spawner, Task>, DetachableTaskGuard>;
 
-/// A task wrapper that executes inline but automatically detaches to a background spawner
-/// if the current execution context is interrupted or dropped.
+/// A task wrapper that polls inline and hands unfinished work to its configured
+/// spawner when dropped.
 ///
-/// `DetachableTask` ensures anti-cancellation. If the outer future is dropped (e.g., due to
-/// a timeout or a `select!` branch failing), the underlying unfinished task is seamlessly
-/// transferred to a background executor via an RAII guard.
+/// If the outer future is dropped (e.g., due to a timeout or a `select!` branch
+/// losing), the unfinished task is handed to the configured [`TaskSpawner`].
+/// Completion depends on that spawner's policy and its executor remaining available.
+///
+/// [`From`] uses [`DefaultSpawner`]: Tokio with the `tokio` feature, or the `()`
+/// identity spawner without it. Detachment ignores the identity spawner's return
+/// value, dropping the unfinished task; awaiting still polls inline. Use [`new`](Self::new) or
+/// [`from_boxed`](Self::from_boxed) to choose a spawner explicitly.
 ///
 /// # Advantages over `tokio::spawn` + `.await JoinHandle`
 ///
@@ -64,7 +69,7 @@ type DetachableTaskContextGuard<Spawner, Task> =
 ///    > newly spawned background task. At this point, **the caller's `task_local!` and TLS state
 ///    > will be silently lost**. Do not rely on implicit local state across `.await` points inside
 ///    > the guarded future.
-#[must_use = "futures do nothing unless you `.await` or poll them; dropping this task will detach it to the background"]
+#[must_use = "tasks do nothing unless awaited or polled; dropping this task invokes its configured spawner"]
 pub struct DetachableTask<Spawner: TaskSpawner<Task>, Task: ?Sized> {
     guard: DetachableTaskContextGuard<Spawner, Task>,
 }
@@ -95,14 +100,19 @@ impl<Spawner: TaskSpawner<Task>, Task: ?Sized> DetachableTask<Spawner, Task> {
     }
 }
 
-/// Spawns a detached task produced by [`DetachableTask`].
+/// Handles a detached task produced by [`DetachableTask`].
 ///
 /// Implement this trait to integrate with a runtime or custom executor.
+///
+/// The guard discards [`spawn`](Self::spawn)'s return value. To preserve execution,
+/// transfer the task to an executor or queue that retains it independently of
+/// that value. The `()` identity spawner returns the task unchanged; on guard
+/// detachment that returned task is dropped because the return value is ignored.
 pub trait TaskSpawner<Task: ?Sized> {
     /// Return type of the spawn operation.
     type Output;
 
-    /// Consumes `self` and schedules `task` for background execution.
+    /// Consumes `self` and handles `task` according to the spawner's policy.
     fn spawn(self, task: BoxTask<Task>) -> Self::Output
     where
         Self: Sized;
@@ -120,6 +130,10 @@ where
     }
 }
 
+/// Identity spawner: returns the pinned task unchanged, without polling or scheduling it.
+///
+/// The caller retains ownership through the return value. Guard detachment
+/// ignores that value, so the returned task is then dropped.
 impl<Task: ?Sized> TaskSpawner<Task> for () {
     type Output = BoxTask<Task>;
 
@@ -155,33 +169,28 @@ cfg_select! {
             }
         }
 
+        /// Default policy with Tokio: spawn detached tasks on the current runtime.
         pub type DefaultSpawner = TokioHandle;
+        /// Default spawner value.
         pub const DEFAULT_SPAWNER: DefaultSpawner = TokioHandle;
     }
 
     _ => {
+        /// Default policy without Tokio: return tasks unchanged without scheduling them.
         pub type DefaultSpawner = ();
+        /// Default spawner value.
         pub const DEFAULT_SPAWNER: DefaultSpawner = ();
     }
 }
 
-impl DetachableTask<(), ()> {
-    // ARCHITECTURE NOTE:
-    // Anchoring constructors on `(), ()` instead of a bounded generic `impl` block
-    // bypasses early trait bound resolution (e.g., `TaskSpawner<Task>`).
-    // This prevents "type annotations needed" inference failures when passing opaque
-    // `async { ... }` blocks whose types are not yet fully resolved.
-
+impl<Spawner: TaskSpawner<Task>, Task: ?Sized> DetachableTask<Spawner, Task> {
     /// Creates a detachable task from an already-pinned, heap-allocated task.
     ///
     /// Unlike [`new`](Self::new), this accepts a pre-pinned
     /// `BoxTask<Task>` and does **not** perform an additional heap allocation.
     /// Use this when the task is already on the heap (e.g. produced by
     /// type-erased guards).
-    pub fn from_boxed<Spawner: TaskSpawner<Task>, Task: ?Sized>(
-        spawner: Spawner,
-        task: BoxTask<Task>,
-    ) -> DetachableTask<Spawner, Task> {
+    pub fn from_boxed(spawner: Spawner, task: BoxTask<Task>) -> Self {
         DetachableTask {
             guard: ContextGuard::assemble(
                 DetachableTaskContext {
@@ -192,21 +201,23 @@ impl DetachableTask<(), ()> {
             ),
         }
     }
+}
 
-    /// Creates a detachable task with a custom spawner.
+impl<Spawner: TaskSpawner<Task>, Task> DetachableTask<Spawner, Task> {
+    /// Creates a detachable task with an explicit spawner, with or without Tokio.
     ///
     /// The task starts in inline polling mode and only moves to `spawner`
     /// when detached (explicitly or by drop before completion).
-    pub fn new<Spawner: TaskSpawner<Task>, Task>(
-        spawner: Spawner,
-        task: Task,
-    ) -> DetachableTask<Spawner, Task> {
+    ///
+    /// With the `()` identity spawner, detachment ignores the returned task and
+    /// therefore drops it without scheduling it.
+    pub fn new(spawner: Spawner, task: Task) -> Self {
         Self::from_boxed(spawner, Box::pin(task))
     }
 }
 
-/// Creates a detachable task that uses the current Tokio runtime for
-/// background detachment.
+/// Creates a task with [`DefaultSpawner`]: Tokio when enabled, otherwise
+/// the `()` identity spawner. Awaiting polls inline in either configuration.
 impl<Task> From<Task> for DetachableTask<DefaultSpawner, Task::IntoFuture>
 where
     Task: IntoFuture,

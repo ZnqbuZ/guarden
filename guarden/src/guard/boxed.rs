@@ -3,8 +3,8 @@ use crate::guard::action::{Action, ActionState, Spawn};
 use crate::task::{BoxTask, DetachableTask, TaskSpawner};
 use alloc::boxed::Box;
 use core::future::Future;
+use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
-use std::ops::{Deref, DerefMut};
 
 /// A trait for guards that can be boxed into a type-erased form.
 pub trait ActionBoxExt<Context> {

@@ -5,9 +5,8 @@ use core::fmt;
 use core::fmt::Debug;
 use core::future::Future;
 use core::mem::take;
-use std::pin::Pin;
-use std::task::Context;
-use std::task::Poll;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 pub mod mode {
     mod private {

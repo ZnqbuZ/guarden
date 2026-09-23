@@ -55,7 +55,9 @@ impl<Context, A: Action<Context>> ContextGuard<Context, A> {
     /// The compiler will automatically infer whether the guard is synchronous or
     /// asynchronous based on the closure's return type. If the closure returns
     /// `()`, it will be a synchronous guard. If it returns a `Future`, it will
-    /// be an asynchronous guard.
+    /// be an asynchronous guard using [`crate::task::DefaultSpawner`]. Without
+    /// Tokio, detachment ignores the identity spawner's returned task, dropping it. Use
+    /// [`with_spawner`](Self::with_spawner) to choose a different policy.
     ///
     /// **Note on generics:** The seemingly unused `_Output` generic parameter and the
     /// `F: FnOnce(Context) -> _Output` trait bound are intentionally included.
@@ -129,8 +131,9 @@ where
 {
     /// Creates an async guard with a custom task spawner.
     ///
-    /// The returned guard executes inline first and detaches through `spawner`
-    /// if it is dropped before completion.
+    /// Works with or without the `tokio` feature. Awaiting the task returned by
+    /// [`trigger`](Self::trigger) polls it inline; dropping the guard or its
+    /// unfinished task hands the future to `spawner`.
     #[inline]
     pub fn with_spawner(context: Context, spawner: Spawner, action: A) -> Self {
         Self::assemble(

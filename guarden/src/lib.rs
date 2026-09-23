@@ -9,6 +9,18 @@
 //! The macros support synchronous and asynchronous bodies, explicit capture lists,
 //! and export controls for captured values.
 //!
+//! ## Runtime support
+//!
+//! With the default `tokio` feature, async macro bodies and
+//! `DetachableTask::from(future)` use Tokio for background detachment.
+//! Without it, the library uses `no_std` + `alloc` and defaults to the `()`
+//! identity spawner, which returns tasks unchanged. Async tasks still execute
+//! inline while awaited. Guard detachment ignores the returned task, so unfinished
+//! work is then dropped. The `()` spawner is available in both configurations.
+//! Choose a custom [`task::TaskSpawner`] through
+//! [`task::DetachableTask::new`] or [`guard::ContextGuard::with_spawner`] to use
+//! another executor.
+//!
 //! ### ⚠️ Critical Usage Note: Diverging Expressions
 //!
 //! Do not use "naked" diverging expressions—such as `panic!`, `todo!`, or `loop {}`—as
