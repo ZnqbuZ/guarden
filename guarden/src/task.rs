@@ -148,13 +148,25 @@ cfg_select! {
         use tokio::runtime::Handle;
         use tokio::task::JoinHandle;
 
-        /// Tokio-backed spawner that uses [`Handle::current`].
+        /// Tokio-backed spawner that spawns detached tasks onto a Tokio runtime.
         ///
-        /// The runtime handle is resolved only when a task is detached/spawned,
-        /// not when a [`DetachableTask`] is constructed. Calling detach/spawn
-        /// outside a Tokio runtime will panic.
-        #[derive(Debug, Default, Clone, Copy)]
-        pub struct TokioHandle;
+        /// If a handle was captured when the spawner was constructed, that handle is used.
+        /// Otherwise, it falls back to resolving [`Handle::current`] at detachment time.
+        /// Calling detach/spawn outside a Tokio runtime will panic only if no handle
+        /// was captured and the current thread has no active Tokio runtime.
+        #[derive(Debug, Clone)]
+        pub struct TokioHandle {
+            handle: Option<Handle>,
+        }
+
+        impl Default for TokioHandle {
+            #[inline]
+            fn default() -> Self {
+                Self {
+                    handle: Handle::try_current().ok(),
+                }
+            }
+        }
 
         impl<Task> TaskSpawner<Task> for TokioHandle
         where
@@ -165,21 +177,17 @@ cfg_select! {
 
             #[inline]
             fn spawn(self, task: BoxTask<Task>) -> Self::Output {
-                Handle::current().spawn(task)
+                self.handle.unwrap_or_else(|| Handle::current()).spawn(task)
             }
         }
 
         /// Default policy with Tokio: spawn detached tasks on the current runtime.
         pub type DefaultSpawner = TokioHandle;
-        /// Default spawner value.
-        pub const DEFAULT_SPAWNER: DefaultSpawner = TokioHandle;
     }
 
     _ => {
         /// Default policy without Tokio: return tasks unchanged without scheduling them.
         pub type DefaultSpawner = ();
-        /// Default spawner value.
-        pub const DEFAULT_SPAWNER: DefaultSpawner = ();
     }
 }
 
@@ -226,7 +234,7 @@ where
 {
     #[inline]
     fn from(value: Task) -> Self {
-        DetachableTask::new(DEFAULT_SPAWNER, value.into_future())
+        DetachableTask::new(DefaultSpawner::default(), value.into_future())
     }
 }
 
@@ -320,6 +328,31 @@ mod tests {
         })
         .await
         .expect("task should be spawned on drop");
+    }
+
+    #[tokio::test]
+    async fn spawn_when_dropped_from_external_thread() {
+        let spawned = Arc::new(AtomicBool::new(false));
+        let task = {
+            let spawned = spawned.clone();
+            DetachableTask::from(async move {
+                spawned.store(true, Ordering::SeqCst);
+            })
+        };
+
+        let spawned_clone = spawned.clone();
+        let handle = std::thread::spawn(move || {
+            drop(task);
+        });
+        handle.join().expect("thread join should succeed");
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !spawned_clone.load(Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("task should be spawned on drop from thread without runtime context");
     }
 
     #[tokio::test]

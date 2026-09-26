@@ -184,9 +184,11 @@ completion after runtime shutdown, process exit, or a panic in the operation.
 | Call `.defuse()` on the guard | Recover the context without creating the future |
 
 With the default Tokio spawner, the future and its output must be `Send + 'static`.
-Detachment must happen inside a Tokio runtime context. Pass owned data into async
-work, and handle errors inside the operation if its result may be discarded.
-Task-local or thread-local state is not automatically carried into the detached task.
+If a handle was captured when the spawner was created, detachment can occur from any
+thread; otherwise, detachment must happen inside a Tokio runtime context. Pass owned
+data into async work, and handle errors inside the operation if its result may be
+discarded. Task-local or thread-local state is not automatically carried into the
+detached task.
 
 ## Runtime support
 
@@ -196,7 +198,7 @@ Task-local or thread-local state is not automatically carried into the detached 
 | `DetachableTask::new(spawner, future)` / `from_boxed(spawner, future)` | Explicit spawner | Explicit spawner |
 | `ContextGuard::with_spawner(context, spawner, action)` | Explicit spawner | Explicit spawner |
 | Inferred async macro bodies / `DetachableTask::from(future)` | Await inline; discard unfinished work on detachment | Await inline; spawn unfinished work on detachment |
-| `DefaultSpawner` / `DEFAULT_SPAWNER` | Use `()` (identity) | Use `TokioHandle` |
+| `DefaultSpawner` | Use `()` (identity) | Use `TokioHandle` |
 | Explicit `()` spawner | Available | Available |
 
 For the `no_std` + `alloc` core:

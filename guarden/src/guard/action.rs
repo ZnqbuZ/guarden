@@ -1,6 +1,6 @@
 use crate::guard;
 
-use crate::task::{DEFAULT_SPAWNER, DefaultSpawner, DetachableTask, TaskSpawner};
+use crate::task::{DefaultSpawner, DetachableTask, TaskSpawner};
 use core::fmt;
 use core::fmt::Debug;
 use core::future::Future;
@@ -146,7 +146,7 @@ where
     #[inline]
     fn infer(self) -> Self::Action {
         Spawn {
-            spawner: Some(DEFAULT_SPAWNER),
+            spawner: Some(DefaultSpawner::default()),
             state: ActionState::Armed(self),
         }
     }

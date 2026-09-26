@@ -37,10 +37,10 @@ fn custom_spawner_resumes_pending_work_without_a_runtime() {
 #[cfg(not(feature = "tokio"))]
 #[test]
 fn default_async_apis_work_without_tokio() {
-    use guarden::task::{DEFAULT_SPAWNER, TaskSpawner};
+    use guarden::task::{DefaultSpawner, TaskSpawner};
     use std::rc::Rc;
 
-    let _: () = DEFAULT_SPAWNER;
+    let _: () = DefaultSpawner::default();
     let mut task = ().spawn(Box::pin(async { 42 }));
     assert_eq!(poll_once(task.as_mut()), Poll::Ready(42));
 
