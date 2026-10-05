@@ -2,6 +2,8 @@ use crate::guard::ContextGuard;
 use crate::guard::action::{Action, ActionState, Spawn};
 use crate::task::{BoxTask, DetachableTask, TaskSpawner};
 use alloc::boxed::Box;
+use core::fmt;
+use core::fmt::{Debug, Formatter};
 use core::future::Future;
 use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
@@ -102,6 +104,17 @@ impl<Context, Output> DerefMut for BoxContextGuard<Context, Output> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.guard
+    }
+}
+
+impl<Context, Output> Debug for BoxContextGuard<Context, Output>
+where
+    ContextGuard<Context, BoxAction<Context, Output>>: Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BoxContextGuard")
+            .field("guard", &self.guard)
+            .finish()
     }
 }
 
