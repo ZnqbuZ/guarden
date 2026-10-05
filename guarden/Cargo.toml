@@ -17,6 +17,7 @@ default = ["tokio"]
 tokio = ["dep:tokio"]
 
 [dependencies]
+derive_more = { version = "2.1.1", features = ["debug", "deref", "deref_mut"] }
 guarden-macros = { workspace = true }
 futures-core = { version = "0.3", default-features = false }
 tokio = { version = "1.52", features = ["rt"], optional = true }

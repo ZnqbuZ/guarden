@@ -2,11 +2,9 @@ use crate::guard::ContextGuard;
 use crate::guard::action::{Action, ActionState, Spawn};
 use crate::task::{BoxTask, DetachableTask, TaskSpawner};
 use alloc::boxed::Box;
-use core::fmt;
-use core::fmt::{Debug, Formatter};
 use core::future::Future;
-use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
+use derive_more::{Debug, Deref, DerefMut};
 
 /// A trait for guards that can be boxed into a type-erased form.
 pub trait ActionBoxExt<Context> {
@@ -69,8 +67,9 @@ impl<Context, Output> Action<Context> for BoxAction<Context, Output> {
     }
 }
 
-#[repr(transparent)]
 #[must_use = "if you don't bind a guard to a variable, its action executes immediately (e.g., `let _g = guard!(...);`)"]
+#[repr(transparent)]
+#[derive(Debug, Deref, DerefMut)]
 pub struct BoxContextGuard<Context, Output> {
     guard: ContextGuard<Context, BoxAction<Context, Output>>,
 }
@@ -89,32 +88,6 @@ impl<Context, Output> BoxContextGuard<Context, Output> {
     #[inline]
     pub fn defuse(self) -> Context {
         self.guard.defuse()
-    }
-}
-
-impl<Context, Output> Deref for BoxContextGuard<Context, Output> {
-    type Target = ContextGuard<Context, BoxAction<Context, Output>>;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.guard
-    }
-}
-
-impl<Context, Output> DerefMut for BoxContextGuard<Context, Output> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.guard
-    }
-}
-
-impl<Context, Output> Debug for BoxContextGuard<Context, Output>
-where
-    ContextGuard<Context, BoxAction<Context, Output>>: Debug,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("BoxContextGuard")
-            .field("guard", &self.guard)
-            .finish()
     }
 }
 

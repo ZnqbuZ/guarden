@@ -4,15 +4,9 @@ pub mod boxed;
 use crate::task::TaskSpawner;
 use action::mode::Mode;
 use action::{Action, Infer, Spawn};
-use core::fmt;
-use core::fmt::Debug;
 use core::mem::ManuallyDrop;
-use core::ops::{Deref, DerefMut};
-
-struct ContextGuardInner<Context, Action> {
-    context: Context,
-    action: Action,
-}
+use derive_more::{Debug, Deref, DerefMut};
+use std::ptr;
 
 /// RAII guard that owns a context value and executes a closure on drop.
 ///
@@ -21,31 +15,28 @@ struct ContextGuardInner<Context, Action> {
 /// - call [`trigger`](Self::trigger) for eager execution, or
 /// - call [`defuse`](Self::defuse) to recover the context without execution.
 #[must_use = "if you don't bind a guard to a variable, its action executes immediately (e.g., `let _g = guard!(...);`)"]
+#[derive(Debug, Deref, DerefMut)]
+#[deref(forward)]
+#[deref_mut(forward)]
 pub struct ContextGuard<Context, A: Action<Context>> {
-    inner: ManuallyDrop<ContextGuardInner<Context, A>>,
+    context: ManuallyDrop<Context>,
+    #[debug(skip)]
+    #[deref(ignore)]
+    #[deref_mut(ignore)]
+    action: ManuallyDrop<A>,
 }
 
-impl<Context, A: Action<Context>> Deref for ContextGuard<Context, A> {
-    type Target = Context;
-
+impl<Context, A: Action<Context>> AsRef<Context> for ContextGuard<Context, A> {
     #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.inner.context
+    fn as_ref(&self) -> &Context {
+        self
     }
 }
 
-impl<Context, A: Action<Context>> DerefMut for ContextGuard<Context, A> {
+impl<Context, A: Action<Context>> AsMut<Context> for ContextGuard<Context, A> {
     #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner.context
-    }
-}
-
-impl<Context: Debug, A: Action<Context>> Debug for ContextGuard<Context, A> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ContextGuard")
-            .field("context", &self.inner.context)
-            .finish_non_exhaustive()
+    fn as_mut(&mut self) -> &mut Context {
+        self
     }
 }
 
@@ -79,7 +70,8 @@ impl<Context, A: Action<Context>> ContextGuard<Context, A> {
     #[doc(hidden)]
     pub fn assemble(context: Context, action: A) -> Self {
         Self {
-            inner: ManuallyDrop::new(ContextGuardInner { context, action }),
+            context: ManuallyDrop::new(context),
+            action: ManuallyDrop::new(action),
         }
     }
     /// Disarms the guard and returns both the context and the guard action.
@@ -90,7 +82,8 @@ impl<Context, A: Action<Context>> ContextGuard<Context, A> {
     pub fn disassemble(self) -> (Context, A) {
         let mut this = ManuallyDrop::new(self);
         unsafe {
-            let ContextGuardInner { context, action } = ManuallyDrop::take(&mut this.inner);
+            let context = ManuallyDrop::take(&mut this.context);
+            let action = ManuallyDrop::take(&mut this.action);
             (context, action)
         }
     }
@@ -190,8 +183,7 @@ impl<Context, A: Action<Context>> Drop for ContextGuard<Context, A> {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            let ContextGuardInner { context, action } = ManuallyDrop::take(&mut self.inner);
-            action.fire(context);
+            ptr::read(self).trigger();
         }
     }
 }
