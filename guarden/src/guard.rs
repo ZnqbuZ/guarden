@@ -16,13 +16,11 @@ use std::ptr;
 /// - call [`defuse`](Self::defuse) to recover the context without execution.
 #[must_use = "if you don't bind a guard to a variable, its action executes immediately (e.g., `let _g = guard!(...);`)"]
 #[derive(Debug, Deref, DerefMut)]
-#[deref(forward)]
-#[deref_mut(forward)]
 pub struct ContextGuard<Context, A: Action<Context>> {
+    #[deref(forward)]
+    #[deref_mut(forward)]
     context: ManuallyDrop<Context>,
     #[debug(skip)]
-    #[deref(ignore)]
-    #[deref_mut(ignore)]
     action: ManuallyDrop<A>,
 }
 
