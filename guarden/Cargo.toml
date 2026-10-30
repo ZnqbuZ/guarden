@@ -8,7 +8,7 @@ license.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "Scoped cleanup and async guards that await inline and detach on cancellation"
-readme = "README.md"
+readme = "../README.md"
 
 [lib]
 

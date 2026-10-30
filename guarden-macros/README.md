@@ -1,7 +1,7 @@
 # guarden-macros
 
 [![Crates.io](https://img.shields.io/crates/v/guarden-macros.svg)](https://crates.io/crates/guarden-macros)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/ZnqbuZ/guarden/blob/master/LICENSE)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 Procedural macro backend for [guarden](https://crates.io/crates/guarden), a Rust
 library for scoped cleanup and async task detachment.
@@ -33,4 +33,9 @@ share its version. The internal macro interface is intended for use by `guarden`
 
 ## License
 
-[MIT](https://github.com/ZnqbuZ/guarden/blob/master/LICENSE)
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](https://github.com/ZnqbuZ/guarden/blob/HEAD/LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](https://github.com/ZnqbuZ/guarden/blob/HEAD/LICENSE-MIT))
+
+at your option.

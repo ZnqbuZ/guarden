@@ -9,7 +9,7 @@ repository = "https://github.com/ZnqbuZ/guarden"
 version = "0.4.2"
 edition = "2024"
 rust-version = "1.95"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 keywords = ["guard", "defer", "scope", "macro", "cleanup"]
 categories = ["development-tools", "rust-patterns"]
 

@@ -3,7 +3,7 @@
 [![Crates.io](https://img.shields.io/crates/v/guarden.svg)](https://crates.io/crates/guarden)
 [![Documentation](https://docs.rs/guarden/badge.svg)](https://docs.rs/guarden)
 [![CI](https://github.com/ZnqbuZ/guarden/actions/workflows/rust.yml/badge.svg)](https://github.com/ZnqbuZ/guarden/actions/workflows/rust.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/ZnqbuZ/guarden/blob/master/LICENSE)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 **Defer cleanup. Await inline. Detach on cancellation.**
 
@@ -298,4 +298,9 @@ cargo test -p guarden --no-default-features --locked
 
 ## License
 
-[MIT](https://github.com/ZnqbuZ/guarden/blob/master/LICENSE)
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.
