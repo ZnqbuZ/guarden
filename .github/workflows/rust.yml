@@ -23,6 +23,6 @@ jobs:
       with:
         tool: cargo-hack
     - name: Check all feature combinations
-      run: cargo hack check -p guarden --feature-powerset --locked
+      run: cargo hack check -p guarden --feature-powerset
     - name: Test all feature combinations
-      run: cargo hack test -p guarden --feature-powerset --locked
+      run: cargo hack test -p guarden --feature-powerset
