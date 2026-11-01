@@ -5,8 +5,8 @@ use crate::task::TaskSpawner;
 use action::mode::Mode;
 use action::{Action, Infer, Spawn};
 use core::mem::ManuallyDrop;
+use core::ptr;
 use derive_more::{Debug, Deref, DerefMut};
-use std::ptr;
 
 /// RAII guard that owns a context value and executes a closure on drop.
 ///
