@@ -1,11 +1,14 @@
 # guarden
 
-[![Crates.io](https://img.shields.io/crates/v/guarden.svg)](https://crates.io/crates/guarden)
+**Defer cleanup. Await inline. Detach on cancellation.**
+
+[![crates.io](https://img.shields.io/crates/v/guarden.svg)](https://crates.io/crates/guarden)
 [![Documentation](https://docs.rs/guarden/badge.svg)](https://docs.rs/guarden)
 [![CI](https://github.com/ZnqbuZ/guarden/actions/workflows/rust.yml/badge.svg)](https://github.com/ZnqbuZ/guarden/actions/workflows/rust.yml)
+[![no_std](https://img.shields.io/badge/no__std-compatible-blue.svg)](#runtime-support)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-**Defer cleanup. Await inline. Detach on cancellation.**
+[API documentation](https://docs.rs/guarden)
 
 `guarden` combines scoped cleanup with async work that can outlive the caller
 waiting for it. Its guards keep captured state accessible until you choose to
