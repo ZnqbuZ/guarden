@@ -1,7 +1,8 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
-    "guarden", "guarden-macros",
+    "guarden",
+    "guarden-macros",
 ]
 
 [workspace.package]
@@ -15,14 +16,3 @@ categories = ["development-tools", "rust-patterns"]
 
 [workspace.dependencies]
 guarden-macros = { version = "0.4.4", path = "guarden-macros" }
-
-[profile.dev]
-panic = "unwind"
-debug = 2
-
-[profile.release]
-panic = "abort"
-lto = true
-codegen-units = 1
-opt-level = 3
-strip = true
