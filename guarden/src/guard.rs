@@ -24,20 +24,6 @@ pub struct ContextGuard<Context, A: Action<Context>> {
     action: ManuallyDrop<A>,
 }
 
-impl<Context, A: Action<Context>> AsRef<Context> for ContextGuard<Context, A> {
-    #[inline]
-    fn as_ref(&self) -> &Context {
-        self
-    }
-}
-
-impl<Context, A: Action<Context>> AsMut<Context> for ContextGuard<Context, A> {
-    #[inline]
-    fn as_mut(&mut self) -> &mut Context {
-        self
-    }
-}
-
 impl<Context, A: Action<Context>> ContextGuard<Context, A> {
     /// Creates a new `ContextGuard`.
     ///
@@ -340,5 +326,16 @@ mod tests {
 
         mapped_guard.trigger().await;
         assert_eq!(state.load(Ordering::SeqCst), 111);
+    }
+
+    #[tokio::test]
+    async fn deref_mut_pin_future_poll() {
+        use core::future::Future;
+
+        let mut future = ContextGuard::new(Box::pin(async { 42 }), |f| {
+            drop(f);
+        });
+        let res = core::future::poll_fn(|cx| future.as_mut().poll(cx)).await;
+        assert_eq!(res, 42);
     }
 }
